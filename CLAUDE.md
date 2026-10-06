@@ -31,8 +31,9 @@ system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center
-.github/workflows/test.yml shellcheck + config syntax, then ./install.sh --ci in a fedora:44 container
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
+.github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
+                           → screenshot (experimental, continue-on-error: vkms + .github/ci-screenshot.sh, uploads shot/)
 ```
 
 ## Package sources (current)
@@ -69,7 +70,8 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 - Notifications from scripts: `fw-notify "title" "body"` (gdbus), not `notify-send`.
 - chezmoi naming: `dot_`, `private_`, `executable_`, `create_` (create-once, e.g. `hypr/local.conf`, `fcitx5/profile`), `modify_` (keeps distro `.bashrc`), `run_onchange_after_`. `~/.config` has exactly one source dir (`dot_config/`) — put private subdirs under it as `private_<name>`.
 - Prompt strings in `.chezmoi.toml.tmpl` must not contain commas (breaks `--promptString`), and are duplicated verbatim in `install.sh`'s CI `--promptString` args — change both together.
-- Outside `--ci`, the user phase runs `chezmoi init --apply "$REPO_URL"` — it applies the **pushed** repo, not the local tree. Test local dotfile edits with the temp-HOME dry-run below.
+- Secret-dependent files are skipped via `dotfiles/.chezmoiignore` when their prompt was left blank (Chromium OAuth env, restic env + timer). New secret-backed files need a matching ignore rule.
+- Outside `--ci`, the user phase runs `chezmoi init --apply "$REPO_URL"` then `chezmoi update` (so re-runs pull new dotfiles) — it applies the **pushed** repo, not the local tree. Test local dotfile edits with the temp-HOME dry-run in Commands.
 - Shell scripts: `#!/usr/bin/env bash`, `set -euo pipefail`; must pass `shellcheck -S warning`. Build package arg lists with `mapfile`, not `$(...)`. Wrap `eval "$(mise activate bash)"` in `set +u`.
 
 ## Verification before declaring done
