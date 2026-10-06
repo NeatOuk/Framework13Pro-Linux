@@ -3,7 +3,6 @@
 node = "lts"
 chezmoi = "latest"
 starship = "latest"
-"npm:@anthropic-ai/claude-code" = "latest"
 
 [settings]
 experimental = false

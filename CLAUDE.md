@@ -17,7 +17,7 @@ ML4W-style **installer** (`install.sh`) that adds a Hyprland (uwsm) desktop on t
 5. **No secrets in git.** Credentials (Chromium OAuth, restic repo/password) come from chezmoi `promptStringOnce` in `dotfiles/.chezmoi.toml.tmpl` and render into `private_` (0600) files.
 6. **Timeshift = whole system + /home, mode auto-detected** in `fw-timeshift-setup`: btrfs mode iff `/` is subvol `@`; otherwise rsync (Fedora's default `root`/`home` names). Scheduled by `fw-timeshift.timer` (`timeshift --check`), not cron.
 7. Hardware is AMD. Do not add Intel-specific packages/params.
-8. Visual style: clean/minimal, Tokyo Night, flat borders, thin bar. **Keys stay simple and conventional** — do not port Omarchy's (or any distro's) keymap/menus.
+8. Visual style: clean/minimal, Tokyo Night, flat borders, thin bar. **Keys stay simple and conventional** — do not port Omarchy's (or any distro's) keymap. Omarchy-*style* bar menus are OK (user decision): bar icons open fuzzel menus (`fw-control-center [section]`, `fw-system-menu`), not big GUI apps; GUI tools stay on right/middle-click.
 
 ## Layout
 
@@ -31,7 +31,7 @@ system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center
 .github/workflows/test.yml shellcheck + config syntax, then ./install.sh --ci in a fedora:44 container
 ```
 
@@ -43,7 +43,8 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
 | COPR `lionheartp/Hyprland` | hyprland, hyprlock, hypridle, hyprpaper, hyprpolkitagent, hyprpicker, hyprsunset, hyprland-guiutils, xdg-desktop-portal-hyprland. Hyprland was **retired from Fedora in F43** and the COPR only builds F44+ (hence the ≥44 preflight); swap via `HYPR_COPR=… ./install.sh` (`HYPR_COPR=` = Fedora only) |
 | RPM Fusion | steam, steam-devices, ffmpeg, gstreamer1-plugins-bad-freeworld |
 | Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm) |
-| mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship, `npm:@anthropic-ai/claude-code` |
+| mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship |
+| Upstream installer | Claude Code via `curl -fsSL https://claude.ai/install.sh \| bash` → `~/.local/bin/claude`, self-updating. Not via mise npm: that skipped the package's postinstall, so no binary |
 
 Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freeworld`, toolbox, Docker CE, ProtonUp-Qt, Nerd Fonts, snapper/btrfs-assistant, Qt5 removal, CJK font removal, swayosd COPR, Arch support, bootc/ISO image.
 

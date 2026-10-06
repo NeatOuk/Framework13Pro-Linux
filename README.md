@@ -27,7 +27,7 @@ Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it a
 | Codecs | Replaces `ffmpeg-free` with RPM Fusion `ffmpeg`, the only package it swaps out |
 | Fingerprint | Turns on fingerprint for sudo, login and polkit (`authselect … with-fingerprint`) |
 | Dotfiles | chezmoi applies `dotfiles/` to your home folder. It asks once for your Chromium OAuth keys and restic repository, which are never stored in git |
-| Tools | mise installs node LTS, chezmoi, starship and Claude Code |
+| Tools | mise installs node LTS, chezmoi and starship; Claude Code comes from Anthropic's native installer (updates itself) |
 | Shell | Lets you pick zsh, fish or bash |
 | Extras | Adds the Flathub remote (no apps installed), offers fingerprint enrollment, sets up Timeshift, and checks for firmware updates |
 | Report | `~/.local/state/fw13-hypr/install-report.txt`: how many packages it added, their total size, and the largest 25 |
@@ -50,6 +50,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 ## Look & keys
 
 - **Look:** Tokyo Night colors, flat square borders, small gaps, a thin bar (launcher and workspaces | clock | tray and status) and a centered lock screen.
+- **Bar menus:** the sliders icon (right end) opens the **control center**: brightness, volume, Wi-Fi, Bluetooth, power profile, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. Clicking the Wi-Fi, Bluetooth, volume or brightness icon jumps straight to that section; right-click (middle-click for volume) opens the full settings app.
 - **Keys:**
 
 | Key | Action |
@@ -68,6 +69,16 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 | SUPER+, (+Shift) | Dismiss notification (all) |
 | Ctrl+Space | Switch to/from Khmer (fcitx5) |
 | 3-finger swipe | Switch workspace |
+
+## Updating
+
+| What | How |
+|---|---|
+| Everything (packages, dotfiles, tools) | Re-run the one-liner. It pulls the latest repo into `~/.local/share/fw13-hypr` and only adds what's missing (if you cloned the repo yourself: `git pull && ./install.sh`) |
+| Fedora + Hyprland packages | `sudo dnf upgrade` |
+| Dotfiles only | `chezmoi update` (your `~/.config/hypr/local.conf` is never overwritten) |
+| Claude Code | Updates itself; `claude update` to force it |
+| BIOS / firmware | `fwupdmgr refresh && fwupdmgr update` |
 
 ## Testing
 

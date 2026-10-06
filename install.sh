@@ -156,7 +156,7 @@ report() {
 
 # ============================================================================
 user_phase() {
-  say "mise tools (node, chezmoi, starship, Claude Code)"
+  say "mise tools (node, chezmoi, starship)"
   set +u; eval "$(mise activate bash)"; set -u
 
   say "Dotfiles (chezmoi)"
@@ -172,6 +172,15 @@ user_phase() {
   fi
   mise install node
   mise install
+
+  # Anthropic's native installer: puts the real binary in ~/.local/bin and keeps it updated itself.
+  # (The npm package via mise skipped its postinstall step, leaving no binary.)
+  if [[ -x "$HOME/.local/bin/claude" ]]; then
+    say "Claude Code already installed (updates itself)"
+  else
+    say "Claude Code (Anthropic native installer)"
+    curl -fsSL https://claude.ai/install.sh | bash
+  fi
 
   [[ $CI == 1 ]] && return 0
 

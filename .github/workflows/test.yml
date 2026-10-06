@@ -53,7 +53,8 @@ jobs:
             if command -v "$b" >/dev/null; then echo "ok  $b"; else echo "MISSING $b"; exit 1; fi
           done
           test -f "$HOME/.config/hypr/hyprland.conf"
-          for t in claude chezmoi starship node; do mise which "$t"; done
+          for t in chezmoi starship node; do mise which "$t"; done
+          "$HOME/.local/bin/claude" --version  # runs the binary, not just finds it
       - name: Report
         if: always()
         run: |
