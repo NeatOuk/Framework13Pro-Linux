@@ -54,36 +54,6 @@ jobs:
           done
           test -f "$HOME/.config/hypr/hyprland.conf"
           for t in claude chezmoi starship node; do mise which "$t"; done
-      # ponytail: experimental — no GPU and no systemd in the container, so Hyprland runs headless
-      # on llvmpipe and autostart's `uwsm app` entries are started by hand. Never fails the job.
-      - name: Screenshot (headless Hyprland)
-        continue-on-error: true
-        timeout-minutes: 5
-        run: |
-          export XDG_RUNTIME_DIR=/tmp/xdg HYPRLAND_HEADLESS_ONLY=1 LIBGL_ALWAYS_SOFTWARE=1
-          install -d -m 0700 "$XDG_RUNTIME_DIR"
-          # CI container runs as root; Hyprland refuses that without this flag
-          Hyprland --i-am-really-stupid > hyprland.log 2>&1 &
-          for _ in $(seq 30); do
-            sigs=("$XDG_RUNTIME_DIR"/hypr/*/.socket.sock)
-            [[ -e ${sigs[0]} ]] && break; sleep 1
-          done
-          [[ -e ${sigs[0]} ]] || { cat hyprland.log; echo "Hyprland did not start"; exit 1; }
-          HYPRLAND_INSTANCE_SIGNATURE="$(basename "$(dirname "${sigs[0]}")")"
-          export HYPRLAND_INSTANCE_SIGNATURE
-          hyprctl output create headless
-          for app in hyprpaper waybar mako kitty; do hyprctl dispatch exec "$app"; done
-          sleep 10
-          socks=("$XDG_RUNTIME_DIR"/wayland-[0-9])  # skip the .lock file
-          WAYLAND_DISPLAY="$(basename "${socks[0]}")" grim desktop.png
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: screenshot-f${{ matrix.fedora }}
-          path: |
-            desktop.png
-            hyprland.log
-          if-no-files-found: ignore
       - name: Report
         if: always()
         run: |
@@ -98,3 +68,27 @@ jobs:
         with:
           name: install-log-f${{ matrix.fedora }}
           path: install.log
+
+  # ponytail: experimental — the runner has no GPU, so load vkms (a virtual KMS device) on the host
+  # and run install + screenshot in a privileged Fedora container that can see /dev/dri.
+  screenshot:
+    needs: install
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load vkms
+        run: |
+          sudo modprobe vkms || { sudo apt-get update -q && sudo apt-get install -yq "linux-modules-extra-$(uname -r)" && sudo modprobe vkms; }
+          ls -l /dev/dri
+      - name: Install and screenshot in Fedora 44
+        run: |
+          docker run --rm --privileged -v /dev/dri:/dev/dri -v "$PWD:/src" -w /src -e HOME=/root \
+            registry.fedoraproject.org/fedora:44 bash .github/ci-screenshot.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshot
+          path: shot/
+          if-no-files-found: ignore
