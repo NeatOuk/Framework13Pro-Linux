@@ -38,9 +38,18 @@ fi
 HYPRLAND_INSTANCE_SIGNATURE="$(basename "$(dirname "${sigs[0]}")")"
 export HYPRLAND_INSTANCE_SIGNATURE
 [[ -n ${hyprctl_headless:-} ]] && hyprctl output create headless
+# Render every frame (no variable frame rate) so screencopy always gets one.
+hyprctl keyword misc:vfr false
+mapfile -t outputs < <(hyprctl monitors | awk '/^Monitor/{print $2}')
+for o in "${outputs[@]}"; do hyprctl keyword monitor "$o,1920x1080@60,auto,1"; done
 for app in hyprpaper waybar mako kitty; do hyprctl dispatch exec "$app"; done
 sleep 10
 hyprctl monitors > shot/monitors.txt
 socks=("$XDG_RUNTIME_DIR"/wayland-[0-9])  # skip the .lock file
-WAYLAND_DISPLAY="$(basename "${socks[0]}")" grim shot/desktop.png
-echo "saved shot/desktop.png"
+export WAYLAND_DISPLAY="${socks[0]##*/}"
+ok=0
+for o in "${outputs[@]}"; do
+  if timeout 30 grim -o "$o" "shot/desktop-$o.png"; then echo "saved shot/desktop-$o.png"; ok=1
+  else echo "grim timed out/failed on $o"; fi
+done
+(( ok ))
