@@ -43,6 +43,11 @@ for o in "${outputs[@]}"; do hyprctl keyword monitor "$o,1920x1080@60,auto,1"; d
 sleep 2  # let the mode change settle before clients bind outputs
 socks=("$XDG_RUNTIME_DIR"/wayland-[0-9])  # skip the .lock file
 export WAYLAND_DISPLAY="${socks[0]##*/}"
+# No systemd user session in the container → start a session bus for waybar/mako
+# with what's already installed (dbus-broker + systemd-socket-activate).
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+systemd-socket-activate -l "$XDG_RUNTIME_DIR/bus" dbus-broker-launch --scope user > shot/dbus.log 2>&1 &
+sleep 1
 for app in hyprpaper waybar mako kitty; do "$app" > "shot/$app.log" 2>&1 & done
 sleep 10
 for app in hyprpaper waybar mako kitty; do
