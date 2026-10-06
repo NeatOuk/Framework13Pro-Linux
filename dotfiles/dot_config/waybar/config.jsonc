@@ -6,7 +6,7 @@
   "spacing": 0,
   "modules-left": ["custom/menu", "hyprland/workspaces"],
   "modules-center": ["clock", "custom/recording"],
-  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "power-profiles-daemon", "cpu", "battery", "custom/control", "custom/power"],
+  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "cpu", "battery", "custom/control", "custom/power"],
 
   "custom/menu": { "format": "", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
   "hyprland/workspaces": {
@@ -50,10 +50,6 @@
     "on-click-middle": "uwsm app -- pavucontrol",
     "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
     "scroll-step": 5
-  },
-  "power-profiles-daemon": {
-    "format": "{icon}",
-    "format-icons": { "performance": "", "balanced": "", "power-saver": "" }
   },
   "cpu": { "format": "", "tooltip": true, "on-click": "uwsm app -- kitty --class fw-btop -e btop" },
   "battery": {
