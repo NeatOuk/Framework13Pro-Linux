@@ -22,6 +22,10 @@ permissions:
   contents: read
   packages: write
 
+defaults:
+  run:
+    shell: bash   # = bash -eo pipefail; without it `podman build | tee` hides build failures
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -44,6 +48,7 @@ jobs:
             --build-arg FEDORA_VERSION=44 \
             --build-arg HYPR_COPR=lionheartp/Hyprland \
             -t "$IMAGE" image/ 2>&1 | tee build.log
+          sudo podman image exists "$IMAGE"
 
       - name: Bloat report
         if: always()
@@ -63,7 +68,7 @@ jobs:
           path: build.log
 
       - name: Push
-        if: github.event_name != 'pull_request'
+        if: success() && github.event_name != 'pull_request'
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           sudo podman push "$IMAGE"
