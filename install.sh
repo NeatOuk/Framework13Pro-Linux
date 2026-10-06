@@ -169,12 +169,19 @@ user_phase() {
       --promptString "restic repository password="
   else
     mise exec chezmoi@latest -- chezmoi init --apply "$REPO_URL"
+    # init doesn't pull an existing source dir; update does (no-op on a fresh install).
+    mise exec chezmoi@latest -- chezmoi update
   fi
   mise install node
   mise install
 
   # Anthropic's native installer: puts the real binary in ~/.local/bin and keeps it updated itself.
   # (The npm package via mise skipped its postinstall step, leaving no binary.)
+  # Older installs had Claude Code from mise npm (no binary); its shim would shadow ~/.local/bin/claude.
+  if [[ -d "$HOME/.local/share/mise/installs/npm-anthropic-ai-claude-code" ]]; then
+    mise uninstall --all npm:@anthropic-ai/claude-code
+    mise reshim
+  fi
   if [[ -x "$HOME/.local/bin/claude" ]]; then
     say "Claude Code already installed (updates itself)"
   else
