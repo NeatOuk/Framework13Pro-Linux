@@ -50,7 +50,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 ## Look & keys
 
 - **Look:** Tokyo Night colors, flat square borders, small gaps, a thin bar (launcher and workspaces | clock | tray and status) and a centered lock screen.
-- **Bar menus:** the sliders icon (right end) opens the **control center**: volume, Wi-Fi, Bluetooth, power, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. The battery icon opens the **power panel**: charge state, time to full or empty, power profile, an 80% charge limit toggle, and battery health. Clicking the Wi-Fi, Bluetooth or volume icon jumps straight to that section; bar menus open right below the icon you clicked; right-click (middle-click for volume) opens the full settings app.
+- **Bar menus:** the sliders icon (right end) opens the **control center**: volume, Wi-Fi, Bluetooth, display, power, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. The battery icon opens the **power panel**: charge state, time to full or empty, power profile, an 80% charge limit toggle, and battery health. The display icon opens the **display panel**: a brightness slider for the laptop screen, and for each connected monitor its position (drag it), refresh rate and scale. **Apply** asks you to keep the change and reverts after 15 seconds otherwise; kept layouts are saved in `~/.config/hypr/displays.conf`, per monitor model. Scrolling on the display icon changes brightness. Clicking the Wi-Fi, Bluetooth or volume icon jumps straight to that section; bar menus open right below the icon you clicked; right-click (middle-click for volume) opens the full settings app.
 - **Keys:**
 
 | Key | Action |

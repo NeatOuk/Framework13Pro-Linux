@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Control center (fuzzel). Bar sliders icon opens the main menu; bar icons open a section directly:
 #   fw-control-center [volume|wifi|bluetooth]
-# Uses only what's installed: wpctl, nmcli, bluetoothctl. Power → fw-power-panel.
+# Uses only what's installed: wpctl, nmcli, bluetoothctl. Display → fw-display-panel, Power → fw-power-panel.
 set -euo pipefail
 
 # Bar clicks set FW_BAR=1: open the menu below the clicked icon, closing any other menu (or this
@@ -67,13 +67,14 @@ bluetooth() {
 main() {
   local pick
   pick="$(printf '%s\n' \
-    $'  Volume' $'  Wi-Fi' $'  Bluetooth' \
+    $'  Volume' $'  Wi-Fi' $'  Bluetooth' $'\ue163  Display' \
     $'  Power' $'  Night light' $'  Lock / Suspend / Shut down' \
-    | menu Control 6)" || return 0
+    | menu Control 7)" || return 0
   case $pick in
     *Volume)     volume ;;
     *Wi-Fi)      wifi ;;
     *Bluetooth)  bluetooth ;;
+    *Display)    fw-display-panel ;;
     *Power)      fw-power-panel ;;
     *Night*)     fw-nightlight ;;
     *Shut*)      fw-system-menu ;;

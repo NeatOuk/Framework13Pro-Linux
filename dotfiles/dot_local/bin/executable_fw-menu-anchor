@@ -7,6 +7,11 @@ set -euo pipefail
 
 name="${1:-menu}"
 state="${XDG_RUNTIME_DIR:-/tmp}/fw-menu-open"
+# The display panel is GTK, not fuzzel: close it the same way.
+panel="${XDG_RUNTIME_DIR:-/tmp}/fw-display-panel.pid"
+if pid="$(cat "$panel" 2>/dev/null)" && grep -qa fw-display-panel "/proc/$pid/cmdline" 2>/dev/null; then
+  kill "$pid"
+fi
 if pkill -x fuzzel; then
   [[ $(cat "$state" 2>/dev/null) == "$name" ]] && { rm -f "$state"; exit 1; }
   for _ in {1..40}; do pgrep -x fuzzel >/dev/null || break; sleep 0.05; done  # let it release its lock

@@ -31,7 +31,7 @@ system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; saves hypr/displays.conf), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
 .github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
                            → screenshot (experimental, continue-on-error: vkms + .github/ci-screenshot.sh, uploads shot/)
 ```
@@ -56,7 +56,7 @@ Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freewo
 ./install.sh --ci                # what CI runs in a fedora container (root, non-interactive)
 ./install.sh --user-only         # re-apply dotfiles/mise/shell only
 HOME=$(mktemp -d) chezmoi init --source=$PWD --apply   # dry-run dotfiles into a throwaway home
-shellcheck -S warning install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*
+shellcheck -S warning install.sh system/usr/local/bin/* $(grep -L python3 dotfiles/dot_local/bin/executable_*)   # bash only; CI ast-parses the Python ones
 ```
 
 Package-resolution failures are intended to fail loudly — fix the name (and ask the user if it means a source change); never add `--skip-unavailable`.
@@ -72,7 +72,7 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 - Prompt strings in `.chezmoi.toml.tmpl` must not contain commas (breaks `--promptString`), and are duplicated verbatim in `install.sh`'s CI `--promptString` args — change both together.
 - Secret-dependent files are skipped via `dotfiles/.chezmoiignore` when their prompt was left blank (Chromium OAuth env, restic env + timer). New secret-backed files need a matching ignore rule.
 - Outside `--ci`, the user phase runs `chezmoi init --apply "$REPO_URL"` then `chezmoi update` (so re-runs pull new dotfiles) — it applies the **pushed** repo, not the local tree. Test local dotfile edits with the temp-HOME dry-run in Commands.
-- Shell scripts: `#!/usr/bin/env bash`, `set -euo pipefail`; must pass `shellcheck -S warning`. Build package arg lists with `mapfile`, not `$(...)`. Wrap `eval "$(mise activate bash)"` in `set +u`.
+- Scripts are bash unless they need a GUI (`fw-display-panel`: Python + GTK3 + GtkLayerShell; pin `gi.require_version` for Gtk **and** Gdk 3.0 or Gdk 4 loads). Shell scripts: `#!/usr/bin/env bash`, `set -euo pipefail`; must pass `shellcheck -S warning`. Build package arg lists with `mapfile`, not `$(...)`. Wrap `eval "$(mise activate bash)"` in `set +u`.
 
 ## Verification before declaring done
 

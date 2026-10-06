@@ -19,8 +19,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: shellcheck
-        run: shellcheck -S warning install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*
+      - name: shellcheck (bash scripts) + syntax check (python scripts)
+        run: |
+          sh=() py=()
+          for f in install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*; do
+            case "$(head -1 "$f")" in *python3*) py+=("$f") ;; *) sh+=("$f") ;; esac
+          done
+          shellcheck -S warning "${sh[@]}"
+          python3 -c 'import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' "${py[@]}"
       - name: config syntax
         run: |
           python3 - <<'PY'
