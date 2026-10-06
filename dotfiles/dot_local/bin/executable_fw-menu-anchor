@@ -27,4 +27,7 @@ right="$(hyprctl monitors | awk '
 
 margin=$(( right - cx - half ))
 (( margin < 0 )) && margin=0
-printf '%s\n' --anchor top-right --x-margin "$margin" --y-margin 0
+# on-demand focus: an exclusive-focus menu makes Hyprland send every click to it, so the other bar
+# icons couldn't be clicked. Without exit-on-focus-loss, focus-follows-mouse would close it on hover.
+printf '%s\n' --anchor top-right --x-margin "$margin" --y-margin 0 \
+  --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss
