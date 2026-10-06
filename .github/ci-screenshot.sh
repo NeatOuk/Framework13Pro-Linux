@@ -53,3 +53,6 @@ for o in "${outputs[@]}"; do
   else echo "grim timed out/failed on $o"; fi
 done
 (( ok ))
+hyprctl configerrors | tee shot/configerrors.txt
+# A clean config prints nothing (or a blank line).
+[[ -z "$(tr -d '[:space:]' < shot/configerrors.txt)" ]] || { echo "Hyprland config errors above"; exit 1; }
