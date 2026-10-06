@@ -12,7 +12,7 @@ window#waybar { background: @bg; color: @fg; }
 #workspaces button { padding: 0 6px; color: @muted; background: transparent; }
 #workspaces button.active { color: @accent; }
 #workspaces button:hover { color: @fg; box-shadow: none; }
-#tray, #bluetooth, #network, #pulseaudio, #backlight, #power-profiles-daemon, #cpu, #battery { padding: 0 9px; }
+#tray, #bluetooth, #network, #pulseaudio, #power-profiles-daemon, #cpu, #battery { padding: 0 9px; }
 #custom-control { padding: 0 9px; }
 #custom-power { padding: 0 14px 0 9px; color: @red; }
 #battery.warning { color: @yellow; }

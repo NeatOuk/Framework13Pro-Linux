@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Bar clicks (FW_BAR=1): closes any open menu, then prints fuzzel args (one per line) that drop the
+# new one just below the bar, centred on the mouse pointer. Clicking the icon whose menu is already
+# open just closes it: prints nothing, exits 1. Keyboard-launched menus skip this and stay centred.
+#   mapfile -t pos < <(fw-menu-anchor <name>); (( ${#pos[@]} )) || exit 0
+set -euo pipefail
+
+name="${1:-menu}"
+state="${XDG_RUNTIME_DIR:-/tmp}/fw-menu-open"
+if pkill -x fuzzel; then
+  [[ $(cat "$state" 2>/dev/null) == "$name" ]] && { rm -f "$state"; exit 1; }
+  for _ in {1..40}; do pgrep -x fuzzel >/dev/null || break; sleep 0.05; done  # let it release its lock
+fi
+echo "$name" > "$state"
+
+half=210  # about half of fuzzel's width (width=40 at size 12), logical px
+
+read -r cx _ < <(hyprctl cursorpos | tr -d ,)
+# Right edge of the focused monitor in logical px (x offset + width / scale).
+right="$(hyprctl monitors | awk '
+  function out() { if (f) printf "%d\n", x + w / s }
+  /^Monitor/              { out(); f = 0; s = 1 }
+  $2 == "at"              { split($1, m, /[x@]/); w = m[1]; split($3, p, "x"); x = p[1] }
+  $1 == "scale:"          { s = $2 }
+  $1 == "focused:" && $2 == "yes" { f = 1 }
+  END                     { out() }')"
+
+margin=$(( right - cx - half ))
+(( margin < 0 )) && margin=0
+printf '%s\n' --anchor top-right --x-margin "$margin" --y-margin 0

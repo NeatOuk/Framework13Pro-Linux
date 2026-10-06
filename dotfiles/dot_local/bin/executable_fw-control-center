@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Control center (fuzzel). Bar sliders icon opens the main menu; bar icons open a section directly:
-#   fw-control-center [brightness|volume|wifi|bluetooth|profile]
-# Uses only what's installed: brightnessctl, wpctl, nmcli, bluetoothctl, powerprofilesctl.
+#   fw-control-center [volume|wifi|bluetooth|profile]
+# Uses only what's installed: wpctl, nmcli, bluetoothctl, powerprofilesctl.
 set -euo pipefail
 
-menu() { fuzzel --dmenu --prompt "$1 › " --lines "${2:-8}"; }
+# Bar clicks set FW_BAR=1: open the menu below the clicked icon, closing any other menu (or this
+# one, on a second click). From the keyboard it stays centred.
+pos=()
+if [[ -n ${FW_BAR:-} ]]; then
+  mapfile -t pos < <(fw-menu-anchor "control-${1:-main}")
+  (( ${#pos[@]} )) || exit 0
+fi
 
-brightness() {
-  local cur pick
-  cur="$(brightnessctl -m | cut -d, -f4)"
-  pick="$(printf '%s\n' 100% 75% 50% 25% 10% | menu "Brightness $cur" 5)" || return 0
-  brightnessctl -q set "$pick"
-}
+menu() { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}"; }
 
 volume() {
   local cur pick
@@ -29,7 +30,9 @@ wifi() {
   radio="$(nmcli radio wifi)"
   [[ $radio == enabled ]] && toggle="Turn Wi-Fi off" || toggle="Turn Wi-Fi on"
   # "● 87%  Name" per network, strongest first, one line per SSID (-e no: SSIDs keep their colons).
-  nets="$(nmcli -t -e no -f IN-USE,SIGNAL,SSID dev wifi list 2>/dev/null \
+  # Cached list so the menu opens instantly; a background rescan freshens it for next time.
+  nmcli dev wifi rescan >/dev/null 2>&1 &
+  nets="$(nmcli -t -e no -f IN-USE,SIGNAL,SSID dev wifi list --rescan no 2>/dev/null \
     | awk -F: '{ s = substr($0, length($1) + length($2) + 3) } s != "" && !seen[s]++ {
         printf "%s %3s%%  %s\n", ($1 == "*" ? "●" : " "), $2, s }')"
   pick="$(printf '%s\n%s\n%s' "$toggle" "Advanced…" "$nets" | sed '/^$/d' | menu Wi-Fi 12)" || return 0
@@ -43,7 +46,7 @@ wifi() {
     nmcli connection up id "$ssid" >/dev/null && fw-notify "Wi-Fi" "Connected to $ssid" || fw-notify "Wi-Fi" "Could not connect to $ssid"
     return
   fi
-  pw="$(fuzzel --dmenu --password --prompt "Password for $ssid › " --lines 0)" || return 0
+  pw="$(fuzzel --dmenu "${pos[@]}" --password --prompt "Password for $ssid › " --lines 0)" || return 0
   if nmcli dev wifi connect "$ssid" ${pw:+password "$pw"} >/dev/null; then
     fw-notify "Wi-Fi" "Connected to $ssid"
   else
@@ -72,9 +75,8 @@ main() {
   pick="$(printf '%s\n' \
     $'  Brightness' $'  Volume' $'  Wi-Fi' $'  Bluetooth' \
     $'  Power profile' $'  Night light' $'  Lock / Suspend / Shut down' \
-    | menu Control 7)" || return 0
+    | menu Control 6)" || return 0
   case $pick in
-    *Brightness) brightness ;;
     *Volume)     volume ;;
     *Wi-Fi)      wifi ;;
     *Bluetooth)  bluetooth ;;
@@ -86,6 +88,6 @@ main() {
 
 case ${1:-} in
   "")                                     main ;;
-  brightness|volume|wifi|bluetooth|profile) "$1" ;;
-  *) echo "usage: fw-control-center [brightness|volume|wifi|bluetooth|profile]" >&2; exit 2 ;;
+  volume|wifi|bluetooth|profile) "$1" ;;
+  *) echo "usage: fw-control-center [volume|wifi|bluetooth|profile]" >&2; exit 2 ;;
 esac

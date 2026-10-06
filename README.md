@@ -50,7 +50,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 ## Look & keys
 
 - **Look:** Tokyo Night colors, flat square borders, small gaps, a thin bar (launcher and workspaces | clock | tray and status) and a centered lock screen.
-- **Bar menus:** the sliders icon (right end) opens the **control center**: brightness, volume, Wi-Fi, Bluetooth, power profile, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. Clicking the Wi-Fi, Bluetooth, volume or brightness icon jumps straight to that section; right-click (middle-click for volume) opens the full settings app.
+- **Bar menus:** the sliders icon (right end) opens the **control center**: volume, Wi-Fi, Bluetooth, power profile, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. Clicking the Wi-Fi, Bluetooth or volume icon jumps straight to that section; bar menus open right below the icon you clicked; right-click (middle-click for volume) opens the full settings app.
 - **Keys:**
 
 | Key | Action |

@@ -6,9 +6,9 @@
   "spacing": 0,
   "modules-left": ["custom/menu", "hyprland/workspaces"],
   "modules-center": ["clock", "custom/recording"],
-  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "backlight", "power-profiles-daemon", "cpu", "battery", "custom/control", "custom/power"],
+  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "power-profiles-daemon", "cpu", "battery", "custom/control", "custom/power"],
 
-  "custom/menu": { "format": "", "on-click": "fuzzel --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
+  "custom/menu": { "format": "", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
   "hyprland/workspaces": {
     "on-click": "activate",
     "format": "{icon}",
@@ -30,7 +30,7 @@
     "format": "",
     "format-disabled": "",
     "format-connected": " {num_connections}",
-    "on-click": "fw-control-center bluetooth",
+    "on-click": "FW_BAR=1 fw-control-center bluetooth",
     "on-click-right": "uwsm app -- blueman-manager"
   },
   "network": {
@@ -38,7 +38,7 @@
     "format-ethernet": "",
     "format-disconnected": "",
     "tooltip-format-wifi": "{essid} ({signalStrength}%) {ipaddr}",
-    "on-click": "fw-control-center wifi",
+    "on-click": "FW_BAR=1 fw-control-center wifi",
     "on-click-right": "uwsm app -- nm-connection-editor"
   },
   "pulseaudio": {
@@ -46,12 +46,11 @@
     "format-muted": "",
     "format-icons": { "default": ["", "", ""] },
     "tooltip-format": "{desc} {volume}%",
-    "on-click": "fw-control-center volume",
+    "on-click": "FW_BAR=1 fw-control-center volume",
     "on-click-middle": "uwsm app -- pavucontrol",
     "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
     "scroll-step": 5
   },
-  "backlight": { "format": "", "tooltip-format": "{percent}%", "on-click": "fw-control-center brightness", "on-scroll-up": "brightnessctl set 5%+", "on-scroll-down": "brightnessctl set 5%-" },
   "power-profiles-daemon": {
     "format": "{icon}",
     "format-icons": { "performance": "", "balanced": "", "power-saver": "" }
@@ -63,8 +62,8 @@
     "format-charging": " {capacity}%",
     "format-icons": ["", "", "", "", ""],
     "tooltip-format": "{capacity}% · {timeTo}",
-    "on-click-right": "fw-system-menu"
+    "on-click-right": "FW_BAR=1 fw-system-menu"
   },
-  "custom/control": { "format": "", "tooltip-format": "Control center", "on-click": "fw-control-center" },
-  "custom/power": { "format": "", "tooltip-format": "Lock / Suspend / Shut down", "on-click": "fw-system-menu" }
+  "custom/control": { "format": "", "tooltip-format": "Control center", "on-click": "FW_BAR=1 fw-control-center" },
+  "custom/power": { "format": "", "tooltip-format": "Lock / Suspend / Shut down", "on-click": "FW_BAR=1 fw-system-menu" }
 }
