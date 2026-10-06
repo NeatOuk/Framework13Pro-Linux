@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Control center (fuzzel). Bar sliders icon opens the main menu; bar icons open a section directly:
-#   fw-control-center [volume|wifi|bluetooth|profile]
-# Uses only what's installed: wpctl, nmcli, bluetoothctl, powerprofilesctl.
+#   fw-control-center [volume|wifi|bluetooth]
+# Uses only what's installed: wpctl, nmcli, bluetoothctl. Power → fw-power-panel.
 set -euo pipefail
 
 # Bar clicks set FW_BAR=1: open the menu below the clicked icon, closing any other menu (or this
@@ -64,23 +64,17 @@ bluetooth() {
   esac
 }
 
-profile() {
-  local pick
-  pick="$(printf '%s\n' performance balanced power-saver | menu "Power profile ($(powerprofilesctl get))" 3)" || return 0
-  powerprofilesctl set "$pick"
-}
-
 main() {
   local pick
   pick="$(printf '%s\n' \
-    $'  Brightness' $'  Volume' $'  Wi-Fi' $'  Bluetooth' \
-    $'  Power profile' $'  Night light' $'  Lock / Suspend / Shut down' \
+    $'  Volume' $'  Wi-Fi' $'  Bluetooth' \
+    $'  Power' $'  Night light' $'  Lock / Suspend / Shut down' \
     | menu Control 6)" || return 0
   case $pick in
     *Volume)     volume ;;
     *Wi-Fi)      wifi ;;
     *Bluetooth)  bluetooth ;;
-    *profile)    profile ;;
+    *Power)      fw-power-panel ;;
     *Night*)     fw-nightlight ;;
     *Shut*)      fw-system-menu ;;
   esac
@@ -88,6 +82,6 @@ main() {
 
 case ${1:-} in
   "")                                     main ;;
-  volume|wifi|bluetooth|profile) "$1" ;;
-  *) echo "usage: fw-control-center [volume|wifi|bluetooth|profile]" >&2; exit 2 ;;
+  volume|wifi|bluetooth) "$1" ;;
+  *) echo "usage: fw-control-center [volume|wifi|bluetooth]" >&2; exit 2 ;;
 esac

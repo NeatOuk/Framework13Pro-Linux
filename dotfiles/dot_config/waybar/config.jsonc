@@ -62,6 +62,7 @@
     "format-charging": " {capacity}%",
     "format-icons": ["", "", "", "", ""],
     "tooltip-format": "{capacity}% · {timeTo}",
+    "on-click": "FW_BAR=1 fw-power-panel",
     "on-click-right": "FW_BAR=1 fw-system-menu"
   },
   "custom/control": { "format": "", "tooltip-format": "Control center", "on-click": "FW_BAR=1 fw-control-center" },

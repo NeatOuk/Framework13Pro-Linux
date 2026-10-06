@@ -23,7 +23,7 @@ Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it a
 | Repos | RPM Fusion (free + nonfree), COPR `lionheartp/Hyprland` (Hyprland was dropped from Fedora's repos in F43), Microsoft (VS Code), mise |
 | Packages | `packages/*.txt`, installed with **optional dependencies off**, so only what's listed (plus hard dependencies) gets installed |
 | Login | **Keeps your existing GDM/SDDM** and adds a Hyprland session. On a Minimal install with no login screen, it installs **greetd + tuigreet** |
-| Power | Keeps `power-profiles-daemon` if it's installed; otherwise installs `tuned` + `tuned-ppd` |
+| Power | Keeps `power-profiles-daemon` if it's installed; otherwise installs `tuned` + `tuned-ppd`. Adds `upower` for battery info and the charge limit |
 | Codecs | Replaces `ffmpeg-free` with RPM Fusion `ffmpeg`, the only package it swaps out |
 | Fingerprint | Turns on fingerprint for sudo, login and polkit (`authselect … with-fingerprint`) |
 | Dotfiles | chezmoi applies `dotfiles/` to your home folder. It asks once for your Chromium OAuth keys and restic repository, which are never stored in git |
@@ -50,7 +50,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 ## Look & keys
 
 - **Look:** Tokyo Night colors, flat square borders, small gaps, a thin bar (launcher and workspaces | clock | tray and status) and a centered lock screen.
-- **Bar menus:** the sliders icon (right end) opens the **control center**: volume, Wi-Fi, Bluetooth, power profile, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. Clicking the Wi-Fi, Bluetooth or volume icon jumps straight to that section; bar menus open right below the icon you clicked; right-click (middle-click for volume) opens the full settings app.
+- **Bar menus:** the sliders icon (right end) opens the **control center**: volume, Wi-Fi, Bluetooth, power, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. The battery icon opens the **power panel**: charge state, time to full or empty, power profile, an 80% charge limit toggle, and battery health. Clicking the Wi-Fi, Bluetooth or volume icon jumps straight to that section; bar menus open right below the icon you clicked; right-click (middle-click for volume) opens the full settings app.
 - **Keys:**
 
 | Key | Action |

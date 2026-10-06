@@ -3,3 +3,5 @@ fwupd
 fprintd
 fprintd-pam
 iio-sensor-proxy
+# battery info + charge limit for fw-power-panel (UPower D-Bus service)
+upower

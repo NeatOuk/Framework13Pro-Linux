@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Power panel (fuzzel): battery state, time to full/empty, power profile, charge limit, battery health.
+# Bar battery icon (FW_BAR=1 → opens below the icon); also fw-control-center → Power.
+# D-Bus only (gdbus): UPower for the battery and charge limit, and the power-profiles API, which both
+# power-profiles-daemon and tuned-ppd provide (powerprofilesctl isn't installed with tuned-ppd).
+set -euo pipefail
+export LC_NUMERIC=C
+
+pos=()
+if [[ -n ${FW_BAR:-} ]]; then
+  mapfile -t pos < <(fw-menu-anchor power)
+  (( ${#pos[@]} )) || exit 0
+fi
+
+UP=org.freedesktop.UPower
+PP=org.freedesktop.UPower.PowerProfiles
+PP_PATH=/org/freedesktop/UPower/PowerProfiles
+
+# Value of 'Key' in a GetAll dump like "'Percentage': <76.0>, 'Model': <'X'>" (type prefix and quotes dropped).
+prop() {
+  local re="'$1': <([a-z0-9]+ )?'?([^'>]*)"
+  if [[ $2 =~ $re ]]; then printf '%s' "${BASH_REMATCH[2]}"; fi
+}
+dur() {
+  local m=$(( $1 / 60 ))
+  if (( m >= 60 )); then printf '%d h %d min' $(( m / 60 )) $(( m % 60 )); else printf '%d min' "$m"; fi
+}
+gt() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'; }  # float a > b
+
+rows=()
+
+# --- Battery (UPower) -------------------------------------------------------
+dev="$(gdbus call --system --dest $UP --object-path /org/freedesktop/UPower --method $UP.EnumerateDevices 2>/dev/null \
+  | grep -o "/org/freedesktop/UPower/devices/battery_BAT[^']*" | head -1)" || true
+all=""
+[[ -n $dev ]] && all="$(gdbus call --system --dest $UP --object-path "$dev" \
+  --method org.freedesktop.DBus.Properties.GetAll $UP.Device 2>/dev/null)" || true
+
+limit_on=false limit_end=""
+if [[ -n $all ]]; then
+  pct="$(printf '%.0f' "$(prop Percentage "$all")")"
+  state="$(prop State "$all")"
+  rate="$(prop EnergyRate "$all")"
+  limit_supported="$(prop ChargeThresholdSupported "$all")"
+  [[ $(prop ChargeThresholdEnabled "$all") == true ]] && limit_on=true
+  if $limit_on; then
+    limit_end="$(prop ChargeEndThreshold "$all")"
+  else  # not ours, but firmware may still cap charging (e.g. Dell BIOS)
+    sys_end="$(cat /sys/class/power_supply/"$(prop NativePath "$all")"/charge_control_end_threshold 2>/dev/null)" || true
+    [[ -n $sys_end ]] && (( sys_end < 100 )) && limit_end="$sys_end"
+  fi
+
+  if   (( pct >= 90 )); then bat=$''
+  elif (( pct >= 65 )); then bat=$''
+  elif (( pct >= 40 )); then bat=$''
+  elif (( pct >= 15 )); then bat=$''
+  else                       bat=$''; fi
+  bolt=$'' plug=$''
+
+  case $state in  # UPower Device.State
+    1) rows+=("$bolt  Charging · $pct%")
+       t="$(prop TimeToFull "$all")"; (( t > 0 )) && rows+=("   $(dur "$t") until full")
+       gt "$rate" 0.1 && rows+=("$(printf '   Charging at %.1f W' "$rate")") ;;
+    2|6) rows+=("$bat  On battery · $pct%")
+       t="$(prop TimeToEmpty "$all")"; (( t > 0 )) && rows+=("   $(dur "$t") left")
+       gt "$rate" 0.1 && rows+=("$(printf '   Drawing %.1f W' "$rate")") ;;
+    4) rows+=("$plug  Fully charged · $pct%") ;;
+    5) rows+=("$plug  Plugged in · not charging · $pct%")
+       [[ -n $limit_end ]] && rows+=("   Charging stops at $limit_end%") ;;
+    *) rows+=("$bat  Battery · $pct%") ;;
+  esac
+fi
+
+# --- Power profile ----------------------------------------------------------
+pp_get() { gdbus call --system --dest $PP --object-path $PP_PATH \
+  --method org.freedesktop.DBus.Properties.Get $PP "$1" 2>/dev/null; }
+if offered="$(pp_get Profiles)"; then
+  active="$(pp_get ActiveProfile | grep -o "'[a-z-]*'" | tr -d "'")" || true
+  for p in performance balanced power-saver; do
+    [[ $offered == *"'$p'"* ]] || continue
+    label="${p^}"; label="${label/-/ }"
+    if [[ $p == "$active" ]]; then rows+=("●  $label"); else rows+=("   $label"); fi
+  done
+fi
+
+# --- Charge limit + battery details -----------------------------------------
+if [[ -n $all ]]; then
+  leaf=$''
+  if [[ ${limit_supported:-} == true ]]; then
+    if $limit_on; then rows+=("$leaf  Charge to 100%  (now stops at $limit_end%)")
+    else rows+=("$leaf  Limit charging to $(prop ChargeEndThreshold "$all")%"); fi
+  fi
+  health="$(prop Capacity "$all")" full="$(prop EnergyFull "$all")" design="$(prop EnergyFullDesign "$all")"
+  gt "$health" 0 && gt "$design" 0 \
+    && rows+=("$(printf '   Health %.1f%% · %.1f of %.1f Wh' "$health" "$full" "$design")")
+  extra=()
+  cycles="$(prop ChargeCycles "$all")"; (( ${cycles:-0} > 0 )) && extra+=("Cycles $cycles")
+  temp="$(prop Temperature "$all")"; gt "${temp:-0}" 0 && extra+=("$(printf '%.0f °C' "$temp")")
+  (( ${#extra[@]} )) && rows+=("   $(printf '%s · ' "${extra[@]}" | sed 's/ · $//')")
+  case $(prop Technology "$all") in
+    1) tech="lithium-ion" ;; 2) tech="lithium-polymer" ;; 3) tech="LiFePO4" ;; *) tech="" ;;
+  esac
+  rows+=("   $(prop Vendor "$all") $(prop Model "$all")${tech:+ · $tech}")
+fi
+
+(( ${#rows[@]} )) || { fw-notify "Power" "No battery or power profile service found"; exit 0; }
+
+pick="$(printf '%s\n' "${rows[@]}" | fuzzel --dmenu "${pos[@]}" --prompt 'Power › ' --lines "${#rows[@]}")" || exit 0
+
+set_profile() {
+  if gdbus call --system --dest $PP --object-path $PP_PATH --method org.freedesktop.DBus.Properties.Set \
+       $PP ActiveProfile "<'$1'>" >/dev/null; then fw-notify "Power profile" "$2"
+  else fw-notify "Power profile" "Could not switch to $2"; fi
+}
+set_limit() {
+  if gdbus call --system --dest $UP --object-path "$dev" --method $UP.Device.EnableChargeThreshold "$1" >/dev/null; then
+    if [[ $1 == true ]]; then fw-notify "Battery" "Charging stops at $(prop ChargeEndThreshold "$all")%"
+    else fw-notify "Battery" "Charging to 100%"; fi
+  else fw-notify "Battery" "Could not change the charge limit"; fi
+}
+
+case $pick in
+  *" Performance")   set_profile performance Performance ;;
+  *" Balanced")      set_profile balanced Balanced ;;
+  *" Power saver")   set_profile power-saver "Power saver" ;;
+  *"Charge to 100%"*) set_limit false ;;
+  *"Limit charging"*) set_limit true ;;
+esac

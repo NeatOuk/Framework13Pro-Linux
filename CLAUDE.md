@@ -24,14 +24,14 @@ ML4W-style **installer** (`install.sh`) that adds a Hyprland (uwsm) desktop on t
 ```
 install.sh                 preflight → repos → packages → system files → login/power → fingerprint/services → user phase → report
                            flags: --yes --ci --system-only --user-only; env: HYPR_COPR, REPO_URL, CHECKOUT
-packages/NN-*.txt          one package per line, '#' comments (15-login, 61-power conditional)
+packages/NN-*.txt          one package per line, '#' comments on their own line only (pkgs() splits on whitespace); 15-login, 61-power conditional
 repos/*.repo               vendor repos (vscode, mise)
 system/usr/local/bin/      fw-timeshift-setup
 system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
 .github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
                            → screenshot (experimental, continue-on-error: vkms + .github/ci-screenshot.sh, uploads shot/)
 ```
