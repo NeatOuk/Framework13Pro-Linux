@@ -45,6 +45,9 @@ socks=("$XDG_RUNTIME_DIR"/wayland-[0-9])  # skip the .lock file
 export WAYLAND_DISPLAY="${socks[0]##*/}"
 # No systemd user session in the container → start a session bus for waybar/mako
 # with what's already installed (dbus-broker + systemd-socket-activate).
+# dbus-broker-launch logs to the journal, so journald has to be up first.
+/usr/lib/systemd/systemd-journald > shot/journald.log 2>&1 &
+for _ in $(seq 10); do [[ -S /run/systemd/journal/socket ]] && break; sleep 0.5; done
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 systemd-socket-activate -l "$XDG_RUNTIME_DIR/bus" dbus-broker-launch --scope user > shot/dbus.log 2>&1 &
 sleep 1
