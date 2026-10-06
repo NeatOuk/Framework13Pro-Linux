@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Clipboard history (SUPER+V): pick an entry → it's copied and pasted into the window you were in.
+# Paste is sent with Hyprland's sendshortcut (no extra tool): Ctrl+Shift+V in terminals, Ctrl+V elsewhere.
+set -euo pipefail
+
+info="$(hyprctl activewindow)"
+addr="$(awk '/^Window / { print $2; exit }' <<<"$info")"
+pid="$(awk -F': ' '/^\tpid:/ { print $2; exit }' <<<"$info")"
+
+pick="$(cliphist list | fuzzel --dmenu --prompt 'Clipboard › ' --width 60)" || exit 0
+[[ -n $pick ]] || exit 0
+cliphist decode <<<"$pick" | wl-copy >/dev/null 2>&1  # wl-copy stays running to serve the clipboard
+
+[[ -n $addr ]] || exit 0  # empty workspace: just copied
+# Terminals by program, not window class (kitty windows may be fw-btop, fw-jarvis, …).
+case "$(cat "/proc/$pid/comm" 2>/dev/null)" in
+  kitty|foot|alacritty|ghostty|wezterm-gui|konsole|gnome-terminal-*|ptyxis*) mods="CTRL SHIFT" ;;
+  *) mods="CTRL" ;;
+esac
+sleep 0.1  # let fuzzel close and the clipboard settle
+# key must be lowercase: "V" is silently not delivered
+hyprctl dispatch sendshortcut "$mods, v, address:0x$addr" >/dev/null

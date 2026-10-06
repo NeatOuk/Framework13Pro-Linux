@@ -66,7 +66,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 | SUPER+L / Escape | Lock / power menu |
 | SUPER+Arrows (+Shift / +Ctrl) | Focus / move / resize |
 | SUPER+1..9 (+Shift), SUPER+Tab | Go to workspace / move window there (on the focused screen: every screen has its own 1–9), previous workspace |
-| SUPER+V | Clipboard history |
+| SUPER+V | Clipboard history (the picked item is pasted into the window you were in) |
 | Print / Shift+Print / Alt+Print / SUPER+Print | Region shot / full shot / start or stop recording / color picker |
 | SUPER+N | Night light |
 | SUPER+, (+Shift) | Dismiss notification (all) |
