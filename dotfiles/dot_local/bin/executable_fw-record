@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Alt+Print — toggle region screen recording (wf-recorder). Press again to stop.
+if pgrep -x wf-recorder >/dev/null; then
+  pkill -INT -x wf-recorder; fw-notify "Recording" "Saved to ~/Videos"; exit 0
+fi
+mkdir -p "$HOME/Videos"
+g="$(slurp)" || exit 0
+fw-notify "Recording" "Started — Alt+Print to stop"
+wf-recorder -g "$g" -f "$HOME/Videos/$(date +%F_%H-%M-%S).mp4" &

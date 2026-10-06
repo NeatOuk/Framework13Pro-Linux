@@ -1,0 +1,65 @@
+{
+  // Clean minimal bar: launcher + workspaces | clock | tray + status
+  "layer": "top",
+  "position": "top",
+  "height": 26,
+  "spacing": 0,
+  "modules-left": ["custom/menu", "hyprland/workspaces"],
+  "modules-center": ["clock", "custom/recording"],
+  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "backlight", "power-profiles-daemon", "cpu", "battery"],
+
+  "custom/menu": { "format": "", "on-click": "fuzzel --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
+  "hyprland/workspaces": {
+    "on-click": "activate",
+    "format": "{icon}",
+    "format-icons": { "default": "○", "active": "●" },
+    "persistent-workspaces": { "*": 5 }
+  },
+  "clock": {
+    "format": "{:%A %H:%M}",
+    "format-alt": "{:%d %B W%V %Y}",
+    "tooltip-format": "<tt>{calendar}</tt>"
+  },
+  "custom/recording": {
+    "exec": "pgrep -x wf-recorder >/dev/null && echo ' REC' || echo ''",
+    "interval": 2,
+    "on-click": "fw-record"
+  },
+  "tray": { "spacing": 12 },
+  "bluetooth": {
+    "format": "",
+    "format-disabled": "",
+    "format-connected": " {num_connections}",
+    "on-click": "uwsm app -- blueman-manager"
+  },
+  "network": {
+    "format-wifi": "",
+    "format-ethernet": "",
+    "format-disconnected": "",
+    "tooltip-format-wifi": "{essid} ({signalStrength}%) {ipaddr}",
+    "on-click": "uwsm app -- nm-connection-editor"
+  },
+  "pulseaudio": {
+    "format": "{icon}",
+    "format-muted": "",
+    "format-icons": { "default": ["", "", ""] },
+    "tooltip-format": "{desc} {volume}%",
+    "on-click": "uwsm app -- pavucontrol",
+    "on-click-right": "swayosd-client --output-volume mute-toggle",
+    "scroll-step": 5
+  },
+  "backlight": { "format": "", "tooltip-format": "{percent}%", "on-scroll-up": "swayosd-client --brightness raise", "on-scroll-down": "swayosd-client --brightness lower" },
+  "power-profiles-daemon": {
+    "format": "{icon}",
+    "format-icons": { "performance": "", "balanced": "", "power-saver": "" }
+  },
+  "cpu": { "format": "", "tooltip": true, "on-click": "uwsm app -- kitty --class fw-btop -e btop" },
+  "battery": {
+    "states": { "warning": 20, "critical": 10 },
+    "format": "{icon}",
+    "format-charging": " {capacity}%",
+    "format-icons": ["", "", "", "", ""],
+    "tooltip-format": "{capacity}% · {timeTo}",
+    "on-click-right": "fw-system-menu"
+  }
+}

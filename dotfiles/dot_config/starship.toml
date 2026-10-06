@@ -1,0 +1,6 @@
+add_newline = false
+format = "$directory$git_branch$git_status$nodejs$java$python$golang$kubernetes$cmd_duration$line_break$character"
+[kubernetes]
+disabled = false
+[cmd_duration]
+min_time = 2000

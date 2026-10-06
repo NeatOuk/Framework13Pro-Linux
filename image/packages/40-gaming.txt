@@ -1,0 +1,7 @@
+# RPM Fusion nonfree
+steam
+steam-devices
+# Fedora official
+gamescope
+gamemode
+mangohud

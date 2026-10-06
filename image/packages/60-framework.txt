@@ -1,0 +1,7 @@
+# Framework laptop — Fedora official
+fwupd
+fprintd
+fprintd-pam
+tuned
+tuned-ppd
+iio-sensor-proxy

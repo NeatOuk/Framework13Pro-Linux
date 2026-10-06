@@ -1,0 +1,13 @@
+{{/* Asked once on `chezmoi init`, stored locally in ~/.config/chezmoi/chezmoi.toml — never in git. */}}
+{{- $apiKey       := promptStringOnce . "chromium.api_key"       "Chromium GOOGLE_API_KEY (blank to skip)" -}}
+{{- $clientId     := promptStringOnce . "chromium.client_id"     "Chromium GOOGLE_DEFAULT_CLIENT_ID" -}}
+{{- $clientSecret := promptStringOnce . "chromium.client_secret" "Chromium GOOGLE_DEFAULT_CLIENT_SECRET" -}}
+{{- $resticRepo   := promptStringOnce . "restic.repository"      "restic repository (e.g. sftp:nas:/backup/fw13 / s3:... / b2:...; blank to skip)" -}}
+{{- $resticPass   := promptStringOnce . "restic.password"        "restic repository password" -}}
+[data.chromium]
+  api_key       = {{ $apiKey | quote }}
+  client_id     = {{ $clientId | quote }}
+  client_secret = {{ $clientSecret | quote }}
+[data.restic]
+  repository = {{ $resticRepo | quote }}
+  password   = {{ $resticPass | quote }}

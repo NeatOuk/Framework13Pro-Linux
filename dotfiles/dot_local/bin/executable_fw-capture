@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Print. Usage: fw-capture [region|screen|record|color]
+dir="$HOME/Pictures/Screenshots"; mkdir -p "$dir"
+mode="${1:-$(printf 'region\nscreen\nrecord\ncolor\n' | fuzzel --dmenu --prompt 'Capture › ' --lines 4)}"
+f="$dir/$(date +%F_%H-%M-%S).png"
+case "$mode" in
+  region) g="$(slurp)" || exit 0; grim -g "$g" "$f" && wl-copy < "$f" && fw-notify "Screenshot" "Copied + saved $f" ;;
+  screen) grim "$f" && wl-copy < "$f" && fw-notify "Screenshot" "Copied + saved $f" ;;
+  record) fw-record ;;
+  color)  hyprpicker -a ;;
+esac

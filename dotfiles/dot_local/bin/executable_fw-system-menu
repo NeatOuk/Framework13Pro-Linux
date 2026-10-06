@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Super+Escape
+case "$(printf '  Lock\n  Suspend\n  Log out\n  Reboot\n  Shutdown\n' | fuzzel --dmenu --prompt 'System › ' --lines 5)" in
+  *Lock)     loginctl lock-session ;;
+  *Suspend)  systemctl suspend ;;
+  *"Log out") uwsm stop ;;
+  *Reboot)   systemctl reboot ;;
+  *Shutdown) systemctl poweroff ;;
+esac

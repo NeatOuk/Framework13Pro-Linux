@@ -1,0 +1,18 @@
+# ~/.zshrc — managed by chezmoi
+HISTFILE=~/.zsh_history HISTSIZE=50000 SAVEHIST=50000
+setopt share_history hist_ignore_dups autocd interactive_comments
+bindkey -e
+autoload -Uz compinit && compinit
+
+# Optional plugins: sourced only if installed
+for p in /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+         /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh; do
+  [[ -r $p ]] && source $p
+done
+
+command -v mise >/dev/null && eval "$(mise activate zsh)"
+command -v starship >/dev/null && eval "$(starship init zsh)"
+
+alias ll='ls -lah --color=auto'
+[[ -r ~/.zshrc.local ]] && source ~/.zshrc.local
+command -v fzf >/dev/null && source <(fzf --zsh)

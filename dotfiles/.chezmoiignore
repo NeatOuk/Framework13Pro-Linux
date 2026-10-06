@@ -1,0 +1,8 @@
+{{ if eq .chromium.api_key "" }}
+.config/environment.d/50-chromium-oauth.conf
+{{ end }}
+{{ if eq .restic.repository "" }}
+.config/restic/env
+.config/systemd/user/restic-backup.service
+.config/systemd/user/restic-backup.timer
+{{ end }}

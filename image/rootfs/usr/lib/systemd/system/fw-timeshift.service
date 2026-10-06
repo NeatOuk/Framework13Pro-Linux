@@ -1,0 +1,9 @@
+[Unit]
+Description=Timeshift scheduled snapshot of /var/home (rsync)
+ConditionPathExists=/etc/timeshift/timeshift.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/timeshift --check --scripted
+Nice=19
+IOSchedulingClass=idle

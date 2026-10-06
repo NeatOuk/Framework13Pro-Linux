@@ -1,0 +1,11 @@
+# Caches / rebuildable / huge
+.cache
+.local/share/Trash
+.local/share/Steam
+.local/share/mise
+.local/share/containers
+.var/app/*/cache
+.npm
+node_modules
+timeshift
+Downloads

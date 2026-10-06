@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Super+Ctrl+N
+if pgrep -x hyprsunset >/dev/null; then pkill -x hyprsunset; fw-notify "Night light" "Off"
+else uwsm app -- hyprsunset -t 4000 & fw-notify "Night light" "On (4000K)"; fi

@@ -1,0 +1,20 @@
+/* Tokyo Night */
+@define-color bg #1a1b26;
+@define-color fg #a9b1d6;
+@define-color accent #7aa2f7;
+@define-color muted #414868;
+@define-color red #f7768e;
+@define-color yellow #e0af68;
+
+* { font-family: "JetBrains Mono", "Font Awesome 6 Free", "Font Awesome 6 Brands", "Noto Sans Khmer", sans-serif; font-size: 12px; min-height: 0; border: none; }
+window#waybar { background: @bg; color: @fg; }
+#custom-menu { padding: 0 12px 0 14px; color: @accent; font-family: "Font Awesome 6 Brands"; }
+#workspaces button { padding: 0 6px; color: @muted; background: transparent; }
+#workspaces button.active { color: @accent; }
+#workspaces button:hover { color: @fg; box-shadow: none; }
+#tray, #bluetooth, #network, #pulseaudio, #backlight, #power-profiles-daemon, #cpu, #battery { padding: 0 9px; }
+#battery { padding-right: 14px; }
+#battery.warning { color: @yellow; }
+#battery.critical { color: @red; }
+#custom-recording { color: @red; padding-left: 10px; }
+tooltip { background: @bg; border: 1px solid @accent; }

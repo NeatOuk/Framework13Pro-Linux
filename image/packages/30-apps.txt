@@ -1,0 +1,4 @@
+# Fedora official
+chromium
+# Vendor official (packages.microsoft.com)
+code

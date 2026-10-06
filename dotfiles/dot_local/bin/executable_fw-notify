@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# fw-notify replacement using gdbus (glib2, already in the image) — avoids an extra package.
+gdbus call --session --dest org.freedesktop.Notifications \
+  --object-path /org/freedesktop/Notifications \
+  --method org.freedesktop.Notifications.Notify \
+  "fw13" 0 "" "${1:-}" "${2:-}" "[]" "{}" 5000 >/dev/null

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Keep the distro's default ~/.bashrc, just ensure our hook line exists.
+content="$(cat)"
+line='[ -r ~/.bashrc.local ] && . ~/.bashrc.local'
+printf '%s\n' "$content"
+printf '%s\n' "$content" | grep -qxF "$line" || printf '%s\n' "$line"

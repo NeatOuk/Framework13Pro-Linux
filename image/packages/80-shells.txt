@@ -1,0 +1,6 @@
+# Fedora official — login shell chosen by fw13-firstboot
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+fzf
+fish

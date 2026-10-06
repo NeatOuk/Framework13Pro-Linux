@@ -1,0 +1,32 @@
+# Hyprland stack — COPR lionheartp/Hyprland (or Fedora if present)
+hyprland
+hyprlock
+hypridle
+hyprpaper
+hyprpolkitagent
+xdg-desktop-portal-hyprland
+uwsm
+hyprpicker
+hyprsunset
+hyprland-guiutils
+# Desktop — Fedora official
+greetd
+tuigreet
+waybar
+fuzzel
+mako
+kitty
+thunar
+grim
+slurp
+wl-clipboard
+cliphist
+brightnessctl
+playerctl
+wf-recorder
+swayosd
+# Applets — Fedora official
+pavucontrol
+network-manager-applet
+blueman
+btop

@@ -1,0 +1,12 @@
+# Khmer input + fonts — Fedora official
+fcitx5
+fcitx5-m17n
+fcitx5-gtk
+fcitx5-qt
+google-noto-sans-fonts
+google-noto-sans-khmer-fonts
+google-noto-sans-cjk-fonts
+google-noto-color-emoji-fonts
+jetbrains-mono-fonts
+fontawesome-fonts-all
+fcitx5-configtool

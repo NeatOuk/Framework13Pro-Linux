@@ -1,0 +1,26 @@
+# Core desktop plumbing — Fedora official (approved)
+linux-firmware
+# AMD Ryzen AI 9 HX 370 / Radeon 890M / MediaTek MT7925 (explicit: Fedora pulls these only as weak deps)
+amd-gpu-firmware
+amd-ucode-firmware
+mt7xxx-firmware
+alsa-sof-firmware
+mesa-dri-drivers
+mesa-vulkan-drivers
+mesa-va-drivers
+vulkan-loader
+NetworkManager
+NetworkManager-wifi
+bluez
+pipewire
+pipewire-pulseaudio
+pipewire-alsa
+wireplumber
+xdg-desktop-portal-gtk
+polkit
+xdg-user-dirs
+qt5-qtwayland
+qt6-qtwayland
+adwaita-icon-theme
+flatpak
+git

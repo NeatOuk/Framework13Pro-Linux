@@ -1,0 +1,5 @@
+# RPM Fusion (replaces ffmpeg-free; installed with --allowerasing)
+ffmpeg
+gstreamer1-plugins-bad-freeworld
+# Fedora (fedora-cisco-openh264 repo)
+gstreamer1-plugin-openh264

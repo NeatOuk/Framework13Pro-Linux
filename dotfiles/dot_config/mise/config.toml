@@ -1,0 +1,9 @@
+# Global tools — identical on every distro. Per-project versions go in <project>/mise.toml
+[tools]
+node = "lts"
+chezmoi = "latest"
+starship = "latest"
+"npm:@anthropic-ai/claude-code" = "latest"
+
+[settings]
+experimental = false

@@ -1,0 +1,15 @@
+[Groups/0]
+Name=Default
+Default Layout=us
+DefaultIM=m17n_km_yannis
+
+[Groups/0/Items/0]
+Name=keyboard-us
+Layout=
+
+[Groups/0/Items/1]
+Name=m17n_km_yannis
+Layout=
+
+[GroupOrder]
+0=Default

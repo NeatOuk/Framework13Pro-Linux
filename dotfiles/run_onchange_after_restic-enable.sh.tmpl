@@ -1,0 +1,8 @@
+#!/bin/sh
+{{ if ne .restic.repository "" -}}
+# Init the repo if it doesn't exist yet, then enable the daily timer.
+set -a; . "$HOME/.config/restic/env"; set +a
+restic cat config >/dev/null 2>&1 || restic init
+systemctl --user daemon-reload
+systemctl --user enable --now restic-backup.timer
+{{- end }}
