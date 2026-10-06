@@ -1,6 +1,8 @@
 # Fedora official
 podman
 distrobox
+# GitHub CLI (gh auth login also sets up git credentials for pushing)
+gh
 # Vendor official (mise.jdx.dev/rpm)
 mise
 # Local LLM server for OpenCode (Fedora). Remote/cloud Ollama servers are managed with fw-opencode.

@@ -43,6 +43,7 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
 | Fedora | everything not listed below (swayosd is not packaged for Fedora 44 → dropped; volume/brightness keys use wpctl/brightnessctl) |
 | COPR `lionheartp/Hyprland` | hyprland, hyprlock, hypridle, hyprpaper, hyprpolkitagent, hyprpicker, hyprsunset, hyprland-guiutils, xdg-desktop-portal-hyprland. Hyprland was **retired from Fedora in F43** and the COPR only builds F44+ (hence the ≥44 preflight); swap via `HYPR_COPR=… ./install.sh` (`HYPR_COPR=` = Fedora only) |
 | Fedora (AI) | ollama (system service, local models for OpenCode) |
+| Fedora (dev) | podman, distrobox, gh (GitHub CLI) |
 | RPM Fusion | steam, steam-devices, ffmpeg, gstreamer1-plugins-bad-freeworld |
 | Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm) |
 | mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship, opencode (self-update off) |
