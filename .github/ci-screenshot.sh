@@ -42,8 +42,12 @@ export HYPRLAND_INSTANCE_SIGNATURE
 hyprctl keyword misc:vfr false
 mapfile -t outputs < <(hyprctl monitors | awk '/^Monitor/{print $2}')
 for o in "${outputs[@]}"; do hyprctl keyword monitor "$o,1920x1080@60,auto,1"; done
-for app in hyprpaper waybar mako kitty; do hyprctl dispatch exec "$app"; done
+sleep 2  # let the mode change settle before clients bind outputs
+for app in hyprpaper waybar mako kitty; do hyprctl dispatch exec "$app > /src/shot/$app.log 2>&1"; done
 sleep 10
+for app in hyprpaper waybar mako kitty; do
+  if [[ -n "$(hyprctl clients | grep -i "class: $app" || true)$(hyprctl layers | grep -i "namespace: $app" || true)" ]]; then echo "running  $app"; else echo "NOT VISIBLE $app"; fi
+done | tee shot/apps.txt
 hyprctl monitors > shot/monitors.txt
 socks=("$XDG_RUNTIME_DIR"/wayland-[0-9])  # skip the .lock file
 export WAYLAND_DISPLAY="${socks[0]##*/}"
