@@ -1,5 +1,5 @@
 [Unit]
-Description=Timeshift scheduled snapshot of /var/home (rsync)
+Description=Timeshift scheduled snapshot (whole system)
 ConditionPathExists=/etc/timeshift/timeshift.json
 
 [Service]

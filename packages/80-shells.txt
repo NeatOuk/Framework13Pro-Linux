@@ -1,0 +1,6 @@
+# Fedora official — login shell chosen during install.sh
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+fzf
+fish

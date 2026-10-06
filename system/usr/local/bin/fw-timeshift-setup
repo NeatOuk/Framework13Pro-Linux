@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# One-time Timeshift setup — whole system, mode picked automatically:
+#   btrfs mode  if / is the @ subvolume (Ubuntu/Arch-style layout: @, @home) — instant, no extra space
+#   rsync mode  otherwise (Fedora names its subvolumes root/home; also ext4/xfs) — copies files
+# Scheduling: fw-timeshift.timer runs `timeshift --check` hourly (works with or without cron).
+set -euo pipefail
+[[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
+
+OWNER="${SUDO_USER:-$(logname 2>/dev/null || echo root)}"
+ROOT_SRC="$(findmnt -no SOURCE /)"          # e.g. /dev/nvme0n1p3[/root]
+ROOT_DEV="${ROOT_SRC%%[*}"
+ROOT_FS="$(findmnt -no FSTYPE /)"
+ROOT_SUBVOL="$(findmnt -no OPTIONS / | tr ',' '\n' | sed -n 's/^subvol=//p')"
+
+if [[ "$ROOT_FS" == btrfs && "$ROOT_SUBVOL" =~ ^/?@$ ]]; then
+  MODE=btrfs
+  UUID="$(blkid -s UUID -o value "$ROOT_DEV")"
+  echo "btrfs @ layout detected on $ROOT_DEV → Timeshift btrfs mode (snapshots @ and @home)."
+else
+  MODE=rsync
+  echo "Root is $ROOT_FS (subvol='${ROOT_SUBVOL:-n/a}') → Timeshift rsync mode, whole system + /home."
+  echo
+  timeshift --list-devices || true
+  echo "Pick a SECOND drive/partition if you have one (survives disk failure)."
+  echo "Same disk works too (protects against bad updates / deletions only)."
+  read -rp "Device for snapshots [default: $ROOT_DEV]: " DEV
+  DEV="${DEV:-$ROOT_DEV}"
+  UUID="$(blkid -s UUID -o value "$DEV")"
+fi
+[[ -n "${UUID:-}" ]] || { echo "Could not determine device UUID"; exit 1; }
+
+H="/home/$OWNER"
+mkdir -p /etc/timeshift
+cat > /etc/timeshift/timeshift.json <<JSON
+{
+  "backup_device_uuid" : "$UUID",
+  "parent_device_uuid" : "",
+  "do_first_run" : "false",
+  "btrfs_mode" : "$([[ $MODE == btrfs ]] && echo true || echo false)",
+  "include_btrfs_home_for_backup" : "true",
+  "include_btrfs_home_for_restore" : "false",
+  "stop_cron_emails" : "true",
+  "schedule_monthly" : "false",
+  "schedule_weekly" : "true",
+  "schedule_daily" : "true",
+  "schedule_hourly" : "$([[ $MODE == btrfs ]] && echo true || echo false)",
+  "schedule_boot" : "true",
+  "count_monthly" : "2",
+  "count_weekly" : "4",
+  "count_daily" : "7",
+  "count_hourly" : "12",
+  "count_boot" : "3",
+  "exclude" : [
+    "$H/.cache/***",
+    "$H/.local/share/Steam/***",
+    "$H/.local/share/mise/***",
+    "$H/.local/share/containers/***",
+    "$H/.local/share/Trash/***",
+    "$H/Downloads/***",
+    "$H/.var/app/*/cache/***",
+    "/var/cache/***",
+    "/var/lib/containers/***",
+    "+ $H/**"
+  ],
+  "exclude-apps" : []
+}
+JSON
+echo "Wrote /etc/timeshift/timeshift.json (mode: $MODE)"
+timeshift --create --comments "baseline after fw13-hypr install" --scripted
+timeshift --list
+systemctl enable --now fw-timeshift.timer
+cat <<EOF
+
+Schedule: $([[ $MODE == btrfs ]] && echo "hourly x12, ")daily x7, weekly x4, boot x3 (fw-timeshift.timer, hourly check).
+Restore a broken system: boot, run 'sudo timeshift --restore' (or the GUI: timeshift-launcher).
+$([[ $MODE == rsync ]] && echo "rsync mode copies files: first snapshot is slow and as big as your data; later ones are incremental (hard links).")
+EOF

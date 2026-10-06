@@ -1,0 +1,70 @@
+# Run the real installer inside clean Fedora containers.
+# Catches: missing/renamed packages, repo setup failures, script errors, dotfile template errors.
+# Can't test (needs hardware/GUI): Hyprland session, Wi-Fi, fingerprint, suspend — see README "Testing".
+name: test-install
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 20 * * 1"   # weekly, Mon 03:17 Phnom Penh — catches upstream package renames
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck -S warning install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*
+      - name: config syntax
+        run: |
+          python3 - <<'PY'
+          import json, re, tomllib
+          s = open('dotfiles/dot_config/waybar/config.jsonc').read()
+          json.loads(re.sub(r'^\s*//.*$', '', s, flags=re.M))
+          for f in ['dotfiles/dot_config/mise/config.toml', 'dotfiles/dot_config/starship.toml']:
+              tomllib.load(open(f, 'rb'))
+          print('ok')
+          PY
+
+  install:
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        fedora: ["43", "44"]
+    container:
+      image: registry.fedoraproject.org/fedora:${{ matrix.fedora }}
+    steps:
+      - run: dnf -y install git
+      - uses: actions/checkout@v4
+      - name: Run installer (CI mode)
+        run: ./install.sh --ci 2>&1 | tee install.log
+      - name: Verify key binaries and dotfiles
+        run: |
+          for b in Hyprland hyprlock hypridle waybar fuzzel kitty uwsm chromium-browser code steam timeshift restic mise; do
+            if command -v "$b" >/dev/null; then echo "ok  $b"; else echo "MISSING $b"; exit 1; fi
+          done
+          test -f "$HOME/.config/hypr/hyprland.conf"
+          for t in claude chezmoi starship node; do mise which "$t"; done
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "## Fedora ${{ matrix.fedora }} — install report"
+            echo '```'
+            cat "$HOME/.local/state/fw13-hypr/install-report.txt" 2>/dev/null || echo "no report"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: install-log-f${{ matrix.fedora }}
+          path: install.log

@@ -10,8 +10,6 @@ hyprpicker
 hyprsunset
 hyprland-guiutils
 # Desktop — Fedora official
-greetd
-tuigreet
 waybar
 fuzzel
 mako
@@ -24,7 +22,6 @@ cliphist
 brightnessctl
 playerctl
 wf-recorder
-swayosd
 # Applets — Fedora official
 pavucontrol
 network-manager-applet

@@ -1,0 +1,3 @@
+# Only installed when no display manager exists (minimal / server installs)
+greetd
+tuigreet

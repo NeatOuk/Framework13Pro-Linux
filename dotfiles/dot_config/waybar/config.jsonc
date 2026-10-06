@@ -45,10 +45,10 @@
     "format-icons": { "default": ["", "", ""] },
     "tooltip-format": "{desc} {volume}%",
     "on-click": "uwsm app -- pavucontrol",
-    "on-click-right": "swayosd-client --output-volume mute-toggle",
+    "on-click-right": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
     "scroll-step": 5
   },
-  "backlight": { "format": "", "tooltip-format": "{percent}%", "on-scroll-up": "swayosd-client --brightness raise", "on-scroll-down": "swayosd-client --brightness lower" },
+  "backlight": { "format": "", "tooltip-format": "{percent}%", "on-scroll-up": "brightnessctl set 5%+", "on-scroll-down": "brightnessctl set 5%-" },
   "power-profiles-daemon": {
     "format": "{icon}",
     "format-icons": { "performance": "", "balanced": "", "power-saver": "" }
