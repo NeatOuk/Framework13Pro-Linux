@@ -12,8 +12,7 @@
   "hyprland/workspaces": {
     "on-click": "activate",
     "format": "{icon}",
-    "format-icons": { "default": "○", "active": "●" },
-    "persistent-workspaces": { "*": 5 }
+    "format-icons": { "default": "○", "active": "●" }
   },
   "clock": {
     "format": "{:%A %H:%M}",

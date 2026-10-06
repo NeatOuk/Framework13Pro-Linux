@@ -51,6 +51,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 
 - **Look:** Tokyo Night colors, flat square borders, small gaps, a thin bar (launcher and workspaces | clock | tray and status) and a centered lock screen.
 - **Bar menus:** the sliders icon (right end) opens the **control center**: volume, Wi-Fi, Bluetooth, display, power, night light. The power icon next to it opens lock / suspend / log out / reboot / shut down. The battery icon opens the **power panel**: charge state, time to full or empty, power profile, an 80% charge limit toggle, and battery health. The display icon opens the **display panel**: a brightness slider for the laptop screen, and for each connected monitor its position (drag it), refresh rate and scale. **Apply** asks you to keep the change and reverts after 15 seconds otherwise; kept layouts are saved in `~/.config/hypr/displays.conf`, per monitor model. Scrolling on the display icon changes brightness. Clicking the Wi-Fi, Bluetooth or volume icon jumps straight to that section; bar menus open right below the icon you clicked; right-click (middle-click for volume) opens the full settings app.
+- **Screens:** each screen has its own workspaces 1–9 and its own row of circles in the bar. At login, kitty opens on the laptop's workspace 1 and Chromium on the external monitor's workspace 1 (the laptop's workspace 2 if no monitor is connected). Unplugging a monitor moves its windows to the laptop; plugging it back in returns them.
 - **Keys:**
 
 | Key | Action |
@@ -62,7 +63,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 | SUPER+S / Shift+S | Scratchpad / send window to scratchpad |
 | SUPER+L / Escape | Lock / power menu |
 | SUPER+Arrows (+Shift / +Ctrl) | Focus / move / resize |
-| SUPER+1..9 (+Shift), SUPER+Tab | Go to workspace / move window there, previous workspace |
+| SUPER+1..9 (+Shift), SUPER+Tab | Go to workspace / move window there (on the focused screen: every screen has its own 1–9), previous workspace |
 | SUPER+V | Clipboard history |
 | Print / Shift+Print / Alt+Print / SUPER+Print | Region shot / full shot / start or stop recording / color picker |
 | SUPER+N | Night light |

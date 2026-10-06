@@ -31,7 +31,7 @@ system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; saves hypr/displays.conf), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; saves hypr/displays.conf), workspaces (Python daemon: per-screen ranges eDP 1–9, others 11–19…; SUPER+N goes through it; login layout), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
 .github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
                            → screenshot (experimental, continue-on-error: vkms + .github/ci-screenshot.sh, uploads shot/)
 ```

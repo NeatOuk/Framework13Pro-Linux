@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Per-screen workspaces: each screen has its own 1–9, so "workspace 1" exists on every screen.
+
+Hyprland workspace IDs are global, so each screen gets a range: the built-in panel (eDP*) 1–9, other
+monitors (sorted by connector name) 11–19, 21–29, … Each bar shows its own five circles.
+
+  fw-workspaces go N     SUPER+N:       workspace N of the focused screen
+  fw-workspaces move N   SUPER+Shift+N: move the active window there
+  fw-workspaces daemon   exec-once: binds the ranges to their screens, opens the login layout
+                         (kitty on the laptop's 1, Chromium on the monitor's 1), and re-binds on hotplug —
+                         an unplugged monitor's workspaces move to the laptop and go back when it returns.
+  fw-workspaces layout   just the login layout (testing)
+"""
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+PERSISTENT = 5  # circles shown per screen
+RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+PIDFILE = os.path.join(RUN, "fw-workspaces.pid")
+LAYOUT_DONE = os.path.join(RUN, "fw-workspaces.layout-done")
+
+
+def hypr(*args):
+    return subprocess.run(["hyprctl", *args], capture_output=True, text=True).stdout
+
+
+def hj(what):
+    try:
+        return json.loads(hypr("-j", what) or "[]")
+    except ValueError:
+        return []
+
+
+def bases(monitors):
+    """{connector name: base}: built-in panel 0, the rest 10, 20, … by connector name."""
+    names = sorted(m["name"] for m in monitors if not m.get("disabled"))
+    builtin = [n for n in names if n.startswith("eDP")]
+    order = builtin[:1] + [n for n in names if n not in builtin[:1]]
+    return {n: 10 * i for i, n in enumerate(order)}
+
+
+def owner(ws_id, base_of):
+    """Monitor whose range holds this workspace id, or None (special/out-of-range workspaces)."""
+    for name, base in base_of.items():
+        if base < ws_id <= base + 9:
+            return name
+    return None
+
+
+def focused(monitors):
+    return next((m for m in monitors if m.get("focused")), monitors[0] if monitors else None)
+
+
+# --- SUPER+N / SUPER+Shift+N --------------------------------------------------------------------
+def go(n, move=False):
+    mons = hj("monitors")
+    m = focused(mons)
+    if not m:
+        return
+    target = bases(mons).get(m["name"], 0) + n
+    hypr("dispatch", "movetoworkspace" if move else "workspace", str(target))
+
+
+# --- ranges ↔ screens ---------------------------------------------------------------------------
+def setup(previous=None):
+    """Bind each screen's range to it; fix workspaces sitting on the wrong screen. Returns the mapping."""
+    mons = hj("monitors")
+    base_of = bases(mons)
+    batch = []
+    # A monitor that went away: its empty workspaces may vanish; windows stay (Hyprland moves them).
+    for name, base in (previous or {}).items():
+        if name not in base_of:
+            batch += [f"keyword workspace {base + i}, persistent:false" for i in range(1, PERSISTENT + 1)]
+    for name, base in base_of.items():
+        batch += [f"keyword workspace {base + i}, monitor:{name}, persistent:true"
+                  + (", default:true" if i == 1 else "") for i in range(1, PERSISTENT + 1)]
+    hypr("--batch", " ; ".join(batch))
+
+    was = focused(mons)
+    for m in mons:  # a screen showing someone else's workspace switches to its own first one
+        if owner(m["activeWorkspace"]["id"], base_of) != m["name"]:
+            hypr("--batch", f"dispatch focusmonitor {m['name']} ; dispatch workspace {base_of[m['name']] + 1}")
+    for ws in hj("workspaces"):  # workspaces (with windows) parked on the wrong screen go home
+        home = owner(ws["id"], base_of)
+        if home and ws["monitor"] != home:
+            hypr("dispatch", "moveworkspacetomonitor", str(ws["id"]), home)
+    if was:
+        hypr("dispatch", "focusmonitor", was["name"])
+    return base_of
+
+
+# --- login layout -------------------------------------------------------------------------------
+def layout():
+    """kitty → laptop's workspace 1, Chromium → the monitor's workspace 1 (laptop's 2 without one)."""
+    base_of = bases(hj("monitors"))
+    names = list(base_of)
+    term_ws = base_of[names[0]] + 1
+    web_ws = base_of[names[1]] + 1 if len(names) > 1 else term_ws + 1
+    before = {c["address"] for c in hj("clients")}
+    apps = {"kitty": ("kitty", term_ws), "chromium": ("chromium-browser", web_ws)}
+    for _, (cmd, _) in apps.items():
+        subprocess.Popen(["uwsm", "app", "--", cmd], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Move each new window by address once it maps (no PID matching through uwsm/systemd).
+    waiting = dict(apps)
+    deadline = time.time() + 20
+    while waiting and time.time() < deadline:
+        time.sleep(0.3)
+        for c in hj("clients"):
+            if c["address"] in before:
+                continue
+            for key in list(waiting):
+                if key in c["class"].lower():
+                    hypr("dispatch", "movetoworkspacesilent", f"{waiting.pop(key)[1]},address:{c['address']}")
+                    before.add(c["address"])
+                    break
+    hypr("dispatch", "workspace", str(term_ws))  # end on the laptop's first workspace
+
+
+# --- daemon -------------------------------------------------------------------------------------
+def events():
+    path = os.path.join(RUN, "hypr", os.environ["HYPRLAND_INSTANCE_SIGNATURE"], ".socket2.sock")
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(path)
+    buf = b""
+    while True:
+        data = s.recv(4096)
+        if not data:
+            return
+        buf += data
+        *lines, buf = buf.split(b"\n")
+        yield from (line.decode(errors="replace") for line in lines)
+
+
+def daemon():
+    try:  # one per session
+        pid = int(open(PIDFILE).read())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            if b"fw-workspaces" in f.read():
+                return
+    except (OSError, ValueError):
+        pass
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    base_of = setup()
+    if not os.path.exists(LAYOUT_DONE):
+        open(LAYOUT_DONE, "w").close()
+        layout()
+    for ev in events():
+        # hotplug, or a config reload (it drops the rules set with hyprctl keyword)
+        if ev.startswith(("monitoradded>>", "monitorremoved>>", "configreloaded>>")):
+            time.sleep(0.5)  # let Hyprland finish moving things around
+            base_of = setup(base_of)
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd in ("go", "move") and len(sys.argv) == 3 and sys.argv[2].isdigit():
+        go(int(sys.argv[2]), move=cmd == "move")
+    elif cmd == "daemon":
+        daemon()
+    elif cmd == "layout":
+        layout()
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
