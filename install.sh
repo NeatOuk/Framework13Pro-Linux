@@ -41,7 +41,7 @@ SUDO=sudo; [[ $EUID -eq 0 ]] && SUDO=""
 [[ "${ID:-}" == fedora ]] || die "Fedora only (found: ${ID:-unknown})."
 [[ -e /run/ostree-booted ]] && die "This is an Atomic/image-based Fedora (Silverblue/Kinoite/...). Use Workstation, KDE, a spin, or Minimal."
 FEDORA="$(rpm -E %fedora)"
-(( FEDORA >= 42 )) || die "Fedora 42 or newer required (found $FEDORA)."
+(( FEDORA >= 44 )) || die "Fedora 44 or newer required (found $FEDORA) — COPR lionheartp/Hyprland has no builds for older releases."
 [[ $EUID -ne 0 || $CI == 1 ]] || die "Run as your normal user, not root (sudo is used where needed)."
 
 # Locate the repo: run from a checkout, or clone one.
@@ -145,7 +145,7 @@ report() {
     echo "added by installer: $(printf '%s\n' "$added" | sed '/^$/d' | wc -l)  ($size)"
     echo
     echo "## Largest 25 added (MB)"
-    [[ -n "$added" ]] && rpm -q --qf '%{SIZE} %{NAME}.%{ARCH}\n' $added | sort -rn | head -25 | awk '{printf "%8.1f  %s\n", $1/1048576, $2}'
+    [[ -n "$added" ]] && rpm -q --qf '%{SIZE} %{NAME}.%{ARCH}\n' $added | sort -rn | awk 'NR<=25 {printf "%8.1f  %s\n", $1/1048576, $2}'
     echo
     echo "## Hyprland stack provenance"
     rpm -q --qf '%{NAME} %{VERSION}-%{RELEASE}  packager=%{PACKAGER}\n' \

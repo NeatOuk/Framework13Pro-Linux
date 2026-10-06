@@ -10,7 +10,7 @@ Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it a
 
 ## Fresh install on the Framework (Wi-Fi only)
 
-1. Install any Fedora 42+ edition. Connecting Wi-Fi in the installer is enough; the MT7925 card works out of the box.
+1. Install any Fedora 44+ edition. Connecting Wi-Fi in the installer is enough; the MT7925 card works out of the box.
    - **Minimal Install:** also tick the **"Common NetworkManager Submodules"** add-on, or you'll have no Wi-Fi after reboot.
    - **USB tethering** from your phone works as a fallback, with no drivers needed.
 2. Log in and run the one-liner above.
@@ -71,7 +71,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 
 ## Testing
 
-- **CI** (`.github/workflows/test.yml`) runs the real installer in clean `fedora:43` and `fedora:44` containers on every push and once a week.
+- **CI** (`.github/workflows/test.yml`) runs the real installer in a clean `fedora:44` container on every push and once a week.
   - **It catches** renamed or missing packages, repo problems and script errors, and checks that the key programs and dotfiles ended up in place.
   - **Results:** the install report appears in the job summary.
 - **Hardware only:** these can only be checked on the laptop itself: the Hyprland session, Wi-Fi/Bluetooth, fingerprint, suspend, VA-API video decode, the ambient light sensor, and Steam with gamescope.
