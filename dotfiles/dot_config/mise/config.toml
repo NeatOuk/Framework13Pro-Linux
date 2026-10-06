@@ -3,6 +3,7 @@
 node = "lts"
 chezmoi = "latest"
 starship = "latest"
+opencode = "latest"   # AI coding agent; Ollama servers via fw-opencode (bar icon)
 
 [settings]
 experimental = false

@@ -31,7 +31,7 @@ system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; saves hypr/displays.conf), workspaces (Python daemon: per-screen ranges eDP 1–9, others 11–19…; SUPER+N goes through it; login layout), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; saves hypr/displays.conf), workspaces (Python daemon: per-screen ranges eDP 1–9, others 11–19…; SUPER+N goes through it; login layout), jarvis (agent launcher; briefing in dot_local/share/jarvis/AGENTS.md), crash-watch (user service; journal coredump/unit-failed → notify → Diagnose), opencode (Ollama server list → generated ~/.config/fw-opencode/opencode.json via OPENCODE_CONFIG), claude-limits (statusLine rate_limits → bar; settings via dot_claude/modify_settings.json), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
 .github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
                            → screenshot (experimental, continue-on-error: vkms + .github/ci-screenshot.sh, uploads shot/)
 ```
@@ -42,9 +42,10 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
 |---|---|
 | Fedora | everything not listed below (swayosd is not packaged for Fedora 44 → dropped; volume/brightness keys use wpctl/brightnessctl) |
 | COPR `lionheartp/Hyprland` | hyprland, hyprlock, hypridle, hyprpaper, hyprpolkitagent, hyprpicker, hyprsunset, hyprland-guiutils, xdg-desktop-portal-hyprland. Hyprland was **retired from Fedora in F43** and the COPR only builds F44+ (hence the ≥44 preflight); swap via `HYPR_COPR=… ./install.sh` (`HYPR_COPR=` = Fedora only) |
+| Fedora (AI) | ollama (system service, local models for OpenCode) |
 | RPM Fusion | steam, steam-devices, ffmpeg, gstreamer1-plugins-bad-freeworld |
 | Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm) |
-| mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship |
+| mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship, opencode (self-update off) |
 | Upstream installer | Claude Code via `curl -fsSL https://claude.ai/install.sh \| bash` → `~/.local/bin/claude`, self-updating. Not via mise npm: that skipped the package's postinstall, so no binary |
 
 Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freeworld`, toolbox, Docker CE, ProtonUp-Qt, Nerd Fonts, snapper/btrfs-assistant, Qt5 removal, CJK font removal, swayosd COPR, Arch support, bootc/ISO image.

@@ -4,6 +4,7 @@
 {{- $clientSecret := promptStringOnce . "chromium.client_secret" "Chromium GOOGLE_DEFAULT_CLIENT_SECRET" -}}
 {{- $resticRepo   := promptStringOnce . "restic.repository"      "restic repository (e.g. sftp:nas:/backup/fw13 / s3:... / b2:...; blank to skip)" -}}
 {{- $resticPass   := promptStringOnce . "restic.password"        "restic repository password" -}}
+{{- $ollamaKey    := promptStringOnce . "ollama.api_key"         "Ollama Cloud API key for OpenCode (blank to skip)" -}}
 [data.chromium]
   api_key       = {{ $apiKey | quote }}
   client_id     = {{ $clientId | quote }}
@@ -11,3 +12,5 @@
 [data.restic]
   repository = {{ $resticRepo | quote }}
   password   = {{ $resticPass | quote }}
+[data.ollama]
+  api_key    = {{ $ollamaKey | quote }}

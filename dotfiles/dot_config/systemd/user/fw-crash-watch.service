@@ -1,0 +1,12 @@
+[Unit]
+Description=Notify about crashed apps and failed services (Diagnose with Jarvis)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/bin/fw-crash-watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

@@ -3,3 +3,5 @@ podman
 distrobox
 # Vendor official (mise.jdx.dev/rpm)
 mise
+# Local LLM server for OpenCode (Fedora). Remote/cloud Ollama servers are managed with fw-opencode.
+ollama

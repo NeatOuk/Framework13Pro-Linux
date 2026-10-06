@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+# chezmoi modify_: Claude Code's settings.json stays the user's file. Only add our statusLine
+# (it feeds the bar's Claude limits icon via fw-claude-limits) when none is set; keep everything else.
+import json
+import sys
+
+text = sys.stdin.read()
+try:
+    settings = json.loads(text) if text.strip() else {}
+except ValueError:
+    sys.stdout.write(text)  # not valid JSON: leave it alone
+    sys.exit(0)
+if "statusLine" in settings:
+    sys.stdout.write(text)
+    sys.exit(0)
+settings["statusLine"] = {"type": "command", "command": "fw-claude-limits --statusline"}
+sys.stdout.write(json.dumps(settings, indent=2) + "\n")

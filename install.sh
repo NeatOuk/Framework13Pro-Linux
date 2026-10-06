@@ -128,6 +128,7 @@ EOF
     $SUDO systemctl daemon-reload
     $SUDO systemctl enable --now bluetooth.service fwupd-refresh.timer fw-timeshift.timer
     has_ppd || $SUDO systemctl enable --now tuned.service
+    $SUDO systemctl enable --now ollama.service   # local models for OpenCode (fw-opencode)
   fi
 
   rpm -qa --qf '%{NAME}\n' | sort > "$STATE_DIR/rpms-after.txt"
@@ -166,7 +167,8 @@ user_phase() {
       --promptString "Chromium GOOGLE_DEFAULT_CLIENT_ID=" \
       --promptString "Chromium GOOGLE_DEFAULT_CLIENT_SECRET=" \
       --promptString "restic repository (e.g. sftp:nas:/backup/fw13 / s3:... / b2:...; blank to skip)=" \
-      --promptString "restic repository password="
+      --promptString "restic repository password=" \
+      --promptString "Ollama Cloud API key for OpenCode (blank to skip)="
   else
     mise exec chezmoi@latest -- chezmoi init --apply "$REPO_URL"
     # init doesn't pull an existing source dir; update does (no-op on a fresh install).
@@ -177,11 +179,15 @@ user_phase() {
 
   # Anthropic's native installer: puts the real binary in ~/.local/bin and keeps it updated itself.
   # (The npm package via mise skipped its postinstall step, leaving no binary.)
-  # Older installs had Claude Code from mise npm (no binary); its shim would shadow ~/.local/bin/claude.
+  # Older installs had Claude Code from mise (npm package, or mise's own `claude` tool); their shims would
+  # shadow ~/.local/bin/claude and run an old copy that can't update itself.
   if [[ -d "$HOME/.local/share/mise/installs/npm-anthropic-ai-claude-code" ]]; then
     mise uninstall --all npm:@anthropic-ai/claude-code
-    mise reshim
   fi
+  if [[ -d "$HOME/.local/share/mise/installs/claude" ]]; then
+    mise uninstall --all claude
+  fi
+  mise reshim
   if [[ -x "$HOME/.local/bin/claude" ]]; then
     say "Claude Code already installed (updates itself)"
   else

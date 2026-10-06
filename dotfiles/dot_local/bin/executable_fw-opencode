@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""OpenCode panel: manage Ollama servers (laptop, self-hosted, Ollama Cloud) and pick the default one + model.
+
+  fw-opencode           panel (bar icon with FW_BAR=1 → opens below it)
+  fw-opencode --bar     waybar JSON: icon + tooltip with the active server/model (no network)
+  fw-opencode --list    "label<TAB>provider/model" per usable server, active first (for fw-jarvis)
+
+Servers: ~/.config/fw-opencode/servers ("name url" per line). Ollama Cloud appears when OLLAMA_API_KEY is
+set (chezmoi prompt). Every change rewrites ~/.config/fw-opencode/opencode.json — one OpenAI-compatible
+provider per server — which OPENCODE_CONFIG (environment.d) merges into OpenCode's own config.
+"""
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+
+DIR = os.path.expanduser("~/.config/fw-opencode")
+SERVERS = os.path.join(DIR, "servers")
+STATE = os.path.join(DIR, "state.json")      # active server, chosen model + known models per server
+GENERATED = os.path.join(DIR, "opencode.json")
+CLOUD = ("cloud", "https://ollama.com")
+KEY = os.environ.get("OLLAMA_API_KEY", "")
+
+
+def servers():
+    out = []
+    try:
+        for line in open(SERVERS):
+            parts = line.split()
+            if len(parts) >= 2 and not parts[0].startswith("#"):
+                out.append((parts[0], parts[1].rstrip("/")))
+    except OSError:
+        out.append(("laptop", "http://localhost:11434"))
+    if KEY:
+        out.append(CLOUD)
+    return out
+
+
+def save_servers(lst):
+    os.makedirs(DIR, exist_ok=True)
+    with open(SERVERS, "w") as f:
+        f.write("# name url — managed by fw-opencode (bar OpenCode icon); editing by hand is fine\n")
+        for name, url in lst:
+            if (name, url) != CLOUD:
+                f.write(f"{name} {url}\n")
+
+
+def load_state():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(st):
+    os.makedirs(DIR, exist_ok=True)
+    tmp = STATE + ".tmp"
+    json.dump(st, open(tmp, "w"), indent=2)
+    os.replace(tmp, STATE)
+
+
+def probe(server):
+    """(online, [model names]) from <url>/api/tags."""
+    name, url = server
+    req = urllib.request.Request(url + "/api/tags")
+    if (name, url) == CLOUD:
+        req.add_header("Authorization", f"Bearer {KEY}")
+    try:
+        with urllib.request.urlopen(req, timeout=1.5) as r:
+            return True, sorted(m["name"] for m in json.load(r).get("models", []))
+    except (OSError, ValueError, KeyError):
+        return False, []
+
+
+def probe_all(lst):
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        return dict(zip(lst, ex.map(probe, lst)))
+
+
+def provider_id(name):
+    return f"ollama-{name}"
+
+
+def generate(st, lst):
+    """Write the OpenCode config fragment for all servers (models from the last successful probe)."""
+    providers = {}
+    for name, url in lst:
+        models = st.get("known", {}).get(name, [])
+        opts = {"baseURL": f"{url}/v1"}
+        if (name, url) == CLOUD:
+            opts["apiKey"] = "{env:OLLAMA_API_KEY}"
+        providers[provider_id(name)] = {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "Ollama Cloud" if (name, url) == CLOUD else f"Ollama · {name}",
+            "options": opts,
+            "models": {m: {"name": m} for m in models},
+        }
+    conf = {"$schema": "https://opencode.ai/config.json", "autoupdate": False, "provider": providers}
+    active = st.get("active")
+    model = st.get("model", {}).get(active)
+    if active and model:
+        conf["model"] = f"{provider_id(active)}/{model}"
+    os.makedirs(DIR, exist_ok=True)
+    tmp = GENERATED + ".tmp"
+    json.dump(conf, open(tmp, "w"), indent=2)
+    os.replace(tmp, GENERATED)
+    subprocess.run(["pkill", "-RTMIN+9", "-x", "waybar"])  # refresh the bar label
+
+
+def fuzzel(rows, prompt, pos, lines=None):
+    r = subprocess.run(["fuzzel", "--dmenu", *pos, "--prompt", f"{prompt} › ", "--width", "64",
+                        "--lines", str(lines if lines is not None else len(rows))],
+                       input="\n".join(rows), capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def notify(title, body):
+    subprocess.run(["fw-notify", title, body])
+
+
+# --- panel --------------------------------------------------------------------------------------
+def panel(pos):
+    lst = servers()
+    st = load_state()
+    status = probe_all(lst)
+    for s, (online, models) in status.items():  # remember models of online servers
+        if online:
+            st.setdefault("known", {})[s[0]] = models
+    names = [n for n, _ in lst]
+    if st.get("active") not in names and names:
+        st["active"] = names[0]
+    active = st.get("active")
+    model = st.get("model", {}).get(active) or ""
+    save_state(st)
+    generate(st, lst)
+
+    width = max((len(n) for n in names), default=6)
+    rows, actions = [], []
+    for s in lst:
+        name, url = s
+        online, models = status[s]
+        where = "Ollama Cloud" if s == CLOUD else url.removeprefix("http://")
+        state = f"online · {len(models)} models" if online else "offline"
+        rows.append(f"{'●' if name == active else ' '}  {name:<{width}}  {where:<24} {state}")
+        actions.append(("use", name))
+    rows.append(f"   Model on {active}: {model or 'choose…'} ▸")
+    actions.append(("model", active))
+    rows += ["   + Add server…", "   − Remove server…", "  Open OpenCode"]
+    actions += [("add", None), ("remove", None), ("open", None)]
+
+    pick = fuzzel(rows, "OpenCode", pos)
+    if pick is None:
+        return
+    kind, arg = actions[rows.index(pick)] if pick in rows else (None, None)
+    if kind == "use":
+        st["active"] = arg
+        save_state(st)
+        generate(st, lst)
+        if not st.get("model", {}).get(arg):
+            choose_model(st, lst, arg, status, pos)
+        else:
+            notify("OpenCode", f"Using {arg} · {st['model'][arg]}")
+    elif kind == "model":
+        choose_model(st, lst, arg, status, pos)
+    elif kind == "add":
+        add_server(st, lst, pos)
+    elif kind == "remove":
+        remove_server(st, lst, pos)
+    elif kind == "open":
+        subprocess.Popen(["uwsm", "app", "--", "kitty", "-e", "opencode"],  # tiles like any terminal
+                         cwd=os.path.expanduser("~"), start_new_session=True)
+
+
+def choose_model(st, lst, name, status, pos):
+    server = next((s for s in lst if s[0] == name), None)
+    models = status.get(server, (False, []))[1] or st.get("known", {}).get(name, [])
+    if not models:
+        notify("OpenCode", f"No models on {name} (offline, or pull one with: ollama pull <model>)")
+        return
+    pick = fuzzel(models, f"Model on {name}", pos, min(len(models), 12))
+    if pick:
+        st.setdefault("model", {})[name] = pick
+        st["active"] = name
+        save_state(st)
+        generate(st, lst)
+        notify("OpenCode", f"Using {name} · {pick}")
+
+
+def add_server(st, lst, pos):
+    name = fuzzel([], "Server name (e.g. nas)", pos, 0)
+    if not name:
+        return
+    name = "".join(c for c in name if c.isalnum() or c in "-_").lower()
+    if not name or name in (n for n, _ in lst):
+        notify("OpenCode", "That name is empty or already used")
+        return
+    url = fuzzel([], f"URL for {name} (e.g. http://nas:11434)", pos, 0)
+    if not url:
+        return
+    url = url.strip().rstrip("/")
+    if "://" not in url:
+        url = "http://" + url
+    if ":" not in url.split("://", 1)[1]:
+        url += ":11434"
+    online, models = probe((name, url))
+    lst = [s for s in lst if s != CLOUD] + [(name, url)]
+    save_servers(lst)
+    if online:
+        st.setdefault("known", {})[name] = models
+    save_state(st)
+    generate(st, servers())
+    notify("OpenCode", f"Added {name}: " + (f"online · {len(models)} models" if online else "offline for now"))
+
+
+def remove_server(st, lst, pos):
+    own = [s for s in lst if s != CLOUD]
+    pick = fuzzel([f"{n}  {u}" for n, u in own], "Remove server", pos)
+    if not pick:
+        return
+    name = pick.split()[0]
+    save_servers([s for s in own if s[0] != name])
+    for key in ("known", "model"):
+        st.get(key, {}).pop(name, None)
+    if st.get("active") == name:
+        st.pop("active")
+    save_state(st)
+    generate(st, servers())
+    notify("OpenCode", f"Removed {name}")
+
+
+# --- bar / jarvis -------------------------------------------------------------------------------
+def bar():
+    st = load_state()
+    active = st.get("active") or (servers()[0][0] if servers() else "none")
+    model = st.get("model", {}).get(active, "no model chosen")
+    print(json.dumps({"text": "", "tooltip": f"OpenCode · {active} · {model}"}))
+
+
+def listing():
+    st = load_state()
+    lst = servers()
+    active = st.get("active")
+    for name, url in sorted(lst, key=lambda s: s[0] != active):
+        model = st.get("model", {}).get(name)
+        if model:
+            label = "Ollama Cloud" if (name, url) == CLOUD else name
+            print(f"OpenCode · {label} · {model}\t{provider_id(name)}/{model}")
+
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    if arg == "--bar":
+        bar()
+    elif arg == "--list":
+        listing()
+    elif arg == "--generate":
+        generate(load_state(), servers())
+    else:
+        pos = []
+        if os.environ.get("FW_BAR"):
+            pos = subprocess.run(["fw-menu-anchor", "opencode"], capture_output=True, text=True).stdout.split("\n")
+            pos = [p for p in pos if p]
+            if not pos:
+                return 0  # second click on the icon: menu closed
+        panel(pos)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

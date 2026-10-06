@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Crash watcher (user service fw-crash-watch): notify when an app crashes or a service fails.
+
+Follows the journal for systemd-coredump ("process dumped core") and "unit entered failed state" entries,
+system and user. The notification's Diagnose button writes a report to $XDG_RUNTIME_DIR/jarvis/ and runs
+`fw-jarvis diagnose <report>`, which asks which agent should read it.
+Ignore list: ~/.config/fw-crash-watch/ignore (one exe name / unit glob per line).
+"""
+import fnmatch
+import json
+import os
+import subprocess
+import time
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+COREDUMP = "fc2e22bc6ee647b6b90729ab34a250b1"
+UNIT_FAILED = "d9b373ed55a64feb8242e02dbe79a49c"
+QUIET = 600  # seconds before the same app/unit may notify again
+IGNORE = os.path.expanduser("~/.config/fw-crash-watch/ignore")
+REPORTS = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis")
+
+
+def run(*cmd):
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return f"({' '.join(cmd)}: {e})"
+
+
+def ignored(key):
+    try:
+        pats = [line.strip() for line in open(IGNORE) if line.strip() and not line.startswith("#")]
+    except OSError:
+        return False
+    return any(fnmatch.fnmatch(key, p) for p in pats)
+
+
+class Watcher:
+    def __init__(self):
+        self.last = {}     # key → time of last notification
+        self.pending = {}  # notification id → event
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+        self.bus.signal_subscribe(None, "org.freedesktop.Notifications", "ActionInvoked",
+                                  "/org/freedesktop/Notifications", None, Gio.DBusSignalFlags.NONE,
+                                  self.on_action)
+        self.journal = subprocess.Popen(
+            ["journalctl", "-f", "-n", "0", "-o", "json", f"MESSAGE_ID={COREDUMP}", f"MESSAGE_ID={UNIT_FAILED}"],
+            stdout=subprocess.PIPE, text=True)
+        GLib.io_add_watch(self.journal.stdout.fileno(), GLib.IO_IN | GLib.IO_HUP, self.on_line)
+
+    # --- journal ------------------------------------------------------------------------------
+    def on_line(self, _fd, cond):
+        if cond & GLib.IO_HUP:
+            loop.quit()  # journalctl died: exit, systemd restarts us
+            return False
+        line = self.journal.stdout.readline()
+        try:
+            self.handle(json.loads(line))
+        except (ValueError, KeyError):
+            pass
+        return True
+
+    def handle(self, e):
+        if e.get("MESSAGE_ID") == COREDUMP:
+            name = e.get("COREDUMP_COMM") or os.path.basename(e.get("COREDUMP_EXE", "?"))
+            ev = {"kind": "crash", "key": name, "pid": e.get("COREDUMP_PID", ""),
+                  "exe": e.get("COREDUMP_EXE", ""), "signal": e.get("COREDUMP_SIGNAL_NAME", "")}
+            title, body = f"{name} crashed" + (f" ({ev['signal']})" if ev["signal"] else ""), ev["exe"]
+        else:
+            user = "USER_UNIT" in e
+            unit = e.get("USER_UNIT") or e.get("UNIT", "?")
+            if unit == "fw-crash-watch.service":
+                return
+            ev = {"kind": "unit", "key": unit, "unit": unit, "user": user}
+            title, body = f"{unit} failed", "user service" if user else "system service"
+        ev["time"] = int(e.get("__REALTIME_TIMESTAMP", time.time() * 1e6)) // 1_000_000
+        if ignored(ev["key"]) or time.time() - self.last.get(ev["key"], 0) < QUIET:
+            return
+        self.last[ev["key"]] = time.time()
+        self.notify(title, f"{body} · {time.strftime('%H:%M', time.localtime(ev['time']))}", ev)
+
+    # --- notification -------------------------------------------------------------------------
+    def notify(self, title, body, ev):
+        actions = ["default", "Diagnose", "diagnose", "Diagnose", "dismiss", "Dismiss"]
+        hints = {"urgency": GLib.Variant("y", 1)}
+        res = self.bus.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                                 "org.freedesktop.Notifications", "Notify",
+                                 GLib.Variant("(susssasa{sv}i)", ("fw-crash-watch", 0, "dialog-warning",
+                                                                  "⚠ " + title, body, actions, hints, 0)),
+                                 GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, -1, None)
+        self.pending[res.unpack()[0]] = ev
+        while len(self.pending) > 50:  # dismissed ones are never reported back reliably; keep it bounded
+            self.pending.pop(next(iter(self.pending)))
+
+    def on_action(self, _conn, _sender, _path, _iface, _signal, params):
+        nid, action = params.unpack()
+        ev = self.pending.pop(nid, None)
+        if ev and action in ("default", "diagnose"):
+            subprocess.Popen(["fw-jarvis", "diagnose", self.report(ev)], start_new_session=True)
+
+    # --- report -------------------------------------------------------------------------------
+    def report(self, ev):
+        os.makedirs(REPORTS, exist_ok=True)
+        path = os.path.join(REPORTS, f"crash-{time.strftime('%Y%m%d-%H%M%S', time.localtime(ev['time']))}.md")
+        since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ev["time"] - 120))
+        until = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ev["time"] + 30))
+        parts = [f"# Crash report: {ev['key']}", f"When: {time.ctime(ev['time'])}"]
+        if ev["kind"] == "crash":
+            parts += [f"Executable: {ev['exe']} (pid {ev['pid']}, signal {ev['signal']})",
+                      f"Package: {run('rpm', '-qf', ev['exe']) if ev['exe'] else '?'}",
+                      "## coredumpctl info", "```", run("coredumpctl", "info", "--no-pager", str(ev["pid"])), "```"]
+        else:
+            scope = ["--user"] if ev["user"] else []
+            parts += ["## systemctl status", "```",
+                      run("systemctl", *scope, "status", "--no-pager", "-n", "0", ev["unit"]), "```",
+                      "## Unit log", "```",
+                      run("journalctl", *scope, "-u", ev["unit"], "-n", "80", "--no-pager"), "```"]
+        parts += ["## Warnings and errors around that time (all services)", "```",
+                  run("journalctl", "-p", "warning", "--since", since, "--until", until, "--no-pager", "-n", "120"),
+                  "```", "## System",
+                  run("sh", "-c", ". /etc/os-release; echo \"$PRETTY_NAME\"; uname -r; "
+                      "rpm -q hyprland waybar mesa-dri-drivers 2>/dev/null")]
+        with open(path, "w") as f:
+            f.write("\n\n".join(parts) + "\n")
+        return path
+
+
+if __name__ == "__main__":
+    Watcher()
+    loop = GLib.MainLoop()
+    loop.run()

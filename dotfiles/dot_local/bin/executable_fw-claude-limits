@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Claude plan limits (5-hour / weekly / monthly spend) in the bar.
+
+  fw-claude-limits --statusline   Claude Code statusLine command: saves rate_limits, prints a status line
+  fw-claude-limits --bar          waybar JSON (icon only; yellow ≥ 75 %, red ≥ 90 %; tooltip = details)
+  fw-claude-limits                panel (bar icon with FW_BAR=1 → opens below it)
+
+The only documented source of plan limits is the statusLine JSON (code.claude.com/docs/en/statusline,
+Claude Code ≥ 2.1.251, Pro/Max), so the numbers refresh while Claude Code runs; the panel says how old they are.
+"""
+import json
+import os
+import subprocess
+import sys
+import time
+
+CACHE = os.path.expanduser("~/.cache/fw-claude/limits.json")
+ICON = "✱"
+PERIOD = {"daily": "today", "weekly": "this week", "monthly": "this month"}
+
+
+def load():
+    try:
+        return json.load(open(CACHE))
+    except (OSError, ValueError):
+        return None
+
+
+def pct(block):
+    return block.get("used_percentage") if isinstance(block, dict) else None
+
+
+def ago(ts):
+    m = int((time.time() - ts) // 60)
+    if m < 1:
+        return "just now"
+    if m < 60:
+        return f"{m} min ago"
+    return f"{m // 60} h {m % 60} min ago" if m < 1440 else time.strftime("%a %H:%M", time.localtime(ts))
+
+
+def resets(ts):
+    if not ts:
+        return ""
+    left = int(ts - time.time())
+    when = time.strftime("%H:%M" if left < 86400 else "%a %H:%M", time.localtime(ts))
+    if left <= 0:
+        return f"reset at {when}"
+    h, m = divmod(left // 60, 60)
+    return f"resets {when} (in {h} h {m} min)" if h else f"resets {when} (in {m} min)"
+
+
+def gauge(p, width=10):
+    filled = round(min(max(p, 0), 100) / 100 * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+# --- statusLine ---------------------------------------------------------------------------------
+def statusline():
+    try:
+        data = json.load(sys.stdin)
+    except ValueError:
+        data = {}
+    rl = data.get("rate_limits")
+    if rl:
+        os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+        tmp = CACHE + ".tmp"
+        json.dump({"updated": time.time(), "rate_limits": rl}, open(tmp, "w"))
+        os.replace(tmp, CACHE)
+    parts = [(data.get("model") or {}).get("display_name", "Claude")]
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        p = pct((rl or {}).get(key))
+        if p is not None:
+            parts.append(f"{label} {p:.0f}%")
+    print(" · ".join(parts))
+
+
+# --- bar ----------------------------------------------------------------------------------------
+def bar():
+    d = load()
+    if not d:
+        print(json.dumps({"text": ICON, "tooltip": "Claude limits: open Claude Code once to load them"}))
+        return
+    rl = d["rate_limits"]
+    vals = [p for p in (pct(rl.get("five_hour")), pct(rl.get("seven_day"))) if p is not None]
+    top = max(vals) if vals else 0
+    lines = []
+    for key, label in (("five_hour", "5-hour"), ("seven_day", "Weekly")):
+        b = rl.get(key)
+        if pct(b) is not None:
+            lines.append(f"{label}: {pct(b):.0f}% · {resets(b.get('resets_at'))}")
+    lines.append(f"Updated {ago(d['updated'])}")
+    cls = "critical" if top >= 90 else "warning" if top >= 75 else ""
+    print(json.dumps({"text": ICON, "tooltip": "\n".join(lines), "class": cls}))  # % only in the panel
+
+
+# --- panel --------------------------------------------------------------------------------------
+def panel():
+    pos = []
+    if os.environ.get("FW_BAR"):
+        pos = [p for p in subprocess.run(["fw-menu-anchor", "claude"], capture_output=True,
+                                         text=True).stdout.split("\n") if p]
+        if not pos:
+            return  # second click on the icon: menu closed
+    d = load()
+    rows = []
+    if d:
+        rl = d["rate_limits"]
+        for key, label in (("five_hour", "5-hour"), ("seven_day", "Weekly")):
+            b = rl.get(key)
+            if pct(b) is not None:  # gauge line, then the reset time underneath
+                rows.append(f"{label:<7} {gauge(pct(b), 24)}  {pct(b):>3.0f}%")
+                rows.append(f"        {resets(b.get('resets_at'))}")
+        s = rl.get("spend_limit")
+        if isinstance(s, dict) and s.get("limit_usd"):
+            rows.append(f"Spend   ${s.get('used_usd', 0):.0f} of ${s['limit_usd']:.0f}"
+                        f" ({pct(s) or 0:.0f}%) {PERIOD.get(s.get('period'), '')}".rstrip())
+        rows.append(f"Updated {ago(d['updated'])}")
+    else:
+        rows.append("Open Claude Code once to load your limits")
+    rows.append(f"{ICON}  Open Claude Code")
+    r = subprocess.run(["fuzzel", "--dmenu", *pos, "--prompt", "Claude › ", "--lines", str(len(rows)),
+                        "--width", "44"], input="\n".join(rows), capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.strip().endswith("Open Claude Code"):
+        subprocess.Popen(["uwsm", "app", "--", "kitty", "-e", "claude"], cwd=os.path.expanduser("~"),
+                         start_new_session=True)
+
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    {"--statusline": statusline, "--bar": bar}.get(arg, panel)()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

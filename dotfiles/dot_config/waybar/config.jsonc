@@ -6,7 +6,7 @@
   "spacing": 0,
   "modules-left": ["custom/menu", "hyprland/workspaces"],
   "modules-center": ["clock", "custom/recording"],
-  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "custom/display", "cpu", "battery", "custom/control", "custom/power"],
+  "modules-right": ["tray", "bluetooth", "network", "pulseaudio", "custom/display", "custom/jarvis", "custom/claude", "custom/opencode", "cpu", "battery", "custom/control", "custom/power"],
 
   "custom/menu": { "format": "", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
   "hyprland/workspaces": {
@@ -51,6 +51,9 @@
     "scroll-step": 5
   },
   "custom/display": { "format": "", "tooltip-format": "Display", "on-click": "FW_BAR=1 fw-display-panel", "on-scroll-up": "brightnessctl -q set 5%+", "on-scroll-down": "brightnessctl -q set 5%-" },
+  "custom/jarvis": { "format": "\uf544", "tooltip-format": "Jarvis (SUPER+A)", "on-click": "FW_BAR=1 fw-jarvis" },
+  "custom/claude": { "exec": "fw-claude-limits --bar", "return-type": "json", "interval": 60, "on-click": "FW_BAR=1 fw-claude-limits" },
+  "custom/opencode": { "exec": "fw-opencode --bar", "return-type": "json", "interval": 300, "signal": 9, "on-click": "FW_BAR=1 fw-opencode" },
   "cpu": { "format": "", "tooltip": true, "on-click": "uwsm app -- kitty --class fw-btop -e btop" },
   "battery": {
     "states": { "warning": 20, "critical": 10 },

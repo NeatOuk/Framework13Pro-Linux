@@ -6,3 +6,6 @@
 .config/systemd/user/restic-backup.service
 .config/systemd/user/restic-backup.timer
 {{ end }}
+{{ if eq (dig "ollama" "api_key" "" .) "" }}
+.config/environment.d/60-ollama.conf
+{{ end }}

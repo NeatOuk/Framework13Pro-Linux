@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Jarvis: ask an AI agent — Claude Code, or OpenCode on any Ollama server from the OpenCode panel — about
+# this computer or the fw13-hypr repo. Tasks open in a floating kitty window (class fw-jarvis).
+#   fw-jarvis                  menu (bar robot icon with FW_BAR=1 → below the icon; SUPER+A)
+#   fw-jarvis diagnose <file>  pick an agent to explain a crash report (from fw-crash-watch)
+# Ask/Diagnose run in ~/.local/share/jarvis, whose AGENTS.md/CLAUDE.md brief the agent on this OS.
+set -euo pipefail
+
+JDIR="$HOME/.local/share/jarvis"
+CRASHES="${XDG_RUNTIME_DIR:-/tmp}/jarvis"
+if [[ -d "$HOME/Framework13Pro-Linux/.git" ]]; then REPO="$HOME/Framework13Pro-Linux"
+else REPO="$HOME/.local/share/fw13-hypr"; fi
+
+pos=()
+if [[ -n ${FW_BAR:-} ]]; then
+  mapfile -t pos < <(fw-menu-anchor jarvis)
+  (( ${#pos[@]} )) || exit 0
+fi
+
+menu() { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}"; }
+ask()  { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines 0 </dev/null; }
+
+# "label<TAB>target": claude, or provider/model for OpenCode (active server first).
+agents() {
+  printf 'Claude\tclaude\n'
+  fw-opencode --list 2>/dev/null || true
+}
+
+pick_agent() {
+  local list label
+  mapfile -t list < <(agents)
+  label="$(printf '%s\n' "${list[@]}" | cut -f1 | menu "Agent" "${#list[@]}")" || return 1
+  printf '%s\n' "${list[@]}" | awk -F'\t' -v l="$label" '$1 == l { print $2; exit }'
+}
+
+# launch <dir> <target> [prompt] — with a prompt it's a Jarvis task (floating window, class fw-jarvis);
+# without one it's a plain Claude/OpenCode session that tiles like any terminal.
+launch() {
+  local dir=$1 target=$2 prompt=${3:-} cmd class=()
+  if [[ $target == claude ]]; then cmd=(claude ${prompt:+"$prompt"})
+  elif [[ $target == opencode ]]; then cmd=(opencode ${prompt:+--prompt "$prompt"})
+  else cmd=(opencode --model "$target" ${prompt:+--prompt "$prompt"}); fi
+  [[ -n $prompt ]] && class=(--class fw-jarvis)
+  uwsm app -- kitty "${class[@]}" --directory "$dir" -e "${cmd[@]}" &
+}
+
+diagnose() {
+  local file=$1 target
+  [[ -r $file ]] || { fw-notify "Jarvis" "Crash report not found"; return; }
+  target="$(pick_agent)" || return 0
+  [[ -n $target ]] || return 0
+  launch "$JDIR" "$target" "Read the crash report at $file. Explain in plain words what crashed and the most \
+likely cause, then suggest a fix. You may use read-only commands (journalctl, coredumpctl, systemctl status, \
+rpm -q) to dig deeper. Do not change anything — no installs, edits, restarts or deletions — without asking me first."
+}
+
+main() {
+  local pick text target last
+  pick="$(printf '%s\n' \
+    $'  Ask…' $'  Work on the fw13-hypr repo…' $'  Diagnose last crash' \
+    $'✱  Open Claude' $'  Open OpenCode' | menu Jarvis 5)" || return 0
+  case $pick in
+    *Ask*)
+      text="$(ask "Ask Jarvis")" || return 0
+      [[ -n $text ]] || return 0
+      target="$(pick_agent)" || return 0
+      launch "$JDIR" "$target" "$text" ;;
+    *repo*)
+      text="$(ask "What should change in fw13-hypr")" || return 0
+      [[ -n $text ]] || return 0
+      target="$(pick_agent)" || return 0
+      launch "$REPO" "$target" "$text" ;;
+    *crash*)
+      last="$(ls -t "$CRASHES"/crash-*.md 2>/dev/null | head -1)" || true
+      if [[ -n $last ]]; then diagnose "$last"; else fw-notify "Jarvis" "No crash reports since login"; fi ;;
+    *Claude*)   launch "$HOME" claude ;;
+    *OpenCode*) launch "$HOME" opencode ;;
+  esac
+}
+
+case ${1:-} in
+  "")       main ;;
+  diagnose) diagnose "${2:?usage: fw-jarvis diagnose <file>}" ;;
+  *) echo "usage: fw-jarvis [diagnose <file>]" >&2; exit 2 ;;
+esac

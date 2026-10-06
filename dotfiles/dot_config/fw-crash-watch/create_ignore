@@ -1,0 +1,3 @@
+# Apps (process name) or units (glob) that should not raise crash notifications, one per line.
+# e.g.  gnome-session-service
+#       packagekit.service
