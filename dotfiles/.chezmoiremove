@@ -8,3 +8,6 @@
 .config/hypr/input.conf
 .config/hypr/windows.conf
 .config/hypr/bindings.conf
+# GNOME Settings forced to run under Hyprland (before fw-settings existed); it also shadowed GNOME's own entry in
+# the GNOME session. GNOME's apps are now hidden in Hyprland by fw13.defaultapps instead.
+.local/share/applications/org.gnome.Settings.desktop

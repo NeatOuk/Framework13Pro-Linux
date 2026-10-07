@@ -13,4 +13,7 @@ hl.on("hyprland.start", function()
   hl.exec_cmd("uwsm app -- wl-paste --watch cliphist store")
   -- Per-screen workspace ranges + login layout (kitty on the laptop's 1, Chromium on the monitor's 1)
   hl.exec_cmd("uwsm app -- fw-workspaces daemon")
+  -- GNOME's apps hidden from the launcher in Hyprland only; Thunar / Chromium / GNOME viewers as defaults
+  -- (~/.config/hyprland-mimeapps.list). Rerun at each login so package updates are picked up (fw13.defaultapps).
+  hl.exec_cmd("env PYTHONPATH=$HOME/.local/lib python3 -m fw13.defaultapps")
 end)
