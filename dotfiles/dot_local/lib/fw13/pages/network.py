@@ -9,7 +9,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from .. import net  # noqa: E402
 from ..ui_theme import button  # noqa: E402
-from .common import Page, label, launch  # noqa: E402
+from .common import Page, label, launch, wrap  # noqa: E402
 
 WIFI_ICON, LOCK_ICON, ETH_ICON, VPN_ICON = "", "", "", ""
 
@@ -174,17 +174,18 @@ class NetworkPage(Page):
         r = Gtk.Box(spacing=12)
         r.get_style_context().add_class("item")
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        left.pack_start(label(title), False, False, 0)
+        left.pack_start(wrap(label(title)), False, False, 0)
         sub = Gtk.Box()
         if lead:
-            sub.pack_start(label(lead, lead_cls), False, False, 0)
+            sub.pack_start(label(lead, lead_cls), False, False, 0)  # one word
         if hint:
-            sub.pack_start(label((" · " if lead else "") + hint, "dim"), False, False, 0)
+            sub.pack_start(wrap(label((" · " if lead else "") + hint, "dim")), True, True, 0)
         left.pack_start(sub, False, False, 0)
         r.pack_start(left, True, True, 0)
         box = _buttons(*buttons)
         box.set_valign(Gtk.Align.CENTER)
         r.pack_end(box, False, False, 0)
+        self.adapt(r, box)
         return self.add_widget(r)
 
     def wifi_row(self, n, conn, ifname):
@@ -214,7 +215,7 @@ class NetworkPage(Page):
             box = b.get_parent()
             for w in box.get_children():
                 box.remove(w)
-            box.pack_start(label("Forget this network?", "warn"), False, False, 0)
+            box.pack_start(wrap(label("Forget this network?", "warn")), False, False, 0)
             box.pack_start(button("Cancel", self.refresh), False, False, 0)
             box.pack_start(button("Forget", lambda: self.run_bg(f"Forgetting {conn['name']}…", net.forget,
                                                                 conn["uuid"]), "danger"), False, False, 0)

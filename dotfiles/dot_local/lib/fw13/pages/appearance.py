@@ -342,7 +342,7 @@ class AppearancePage(HyprPage):
             flow = Gtk.FlowBox()
             flow.set_selection_mode(Gtk.SelectionMode.NONE)
             flow.set_homogeneous(True)
-            flow.set_min_children_per_line(2)
+            flow.set_min_children_per_line(1)  # one per line at half a screen
             flow.set_max_children_per_line(8)
             flow.set_column_spacing(8)
             flow.set_row_spacing(8)
@@ -371,11 +371,11 @@ class AppearancePage(HyprPage):
         self.row(wp.library_dir().replace(os.path.expanduser("~"), "~", 1), box,
                  hint="Click a picture to use it (SUPER+W too); right-click to remove it")
         st = wp.state()
-        box = Gtk.Box(spacing=8)
-        box.pack_start(label("Desktop", "dim"), False, False, 0)
-        box.pack_start(combo(wp.EFFECTS, st["desktop_effect"], lambda v: self.set_effect(desktop=v)), False, False, 0)
-        box.pack_start(label("Lock screen", "dim"), False, False, 4)
-        box.pack_start(combo(wp.EFFECTS, st["lock_effect"], lambda v: self.set_effect(lock=v)), False, False, 0)
+        box = Gtk.Grid(column_spacing=8, row_spacing=6)  # two lines: fits Settings at half a screen
+        box.attach(label("Desktop", "dim"), 0, 0, 1, 1)
+        box.attach(combo(wp.EFFECTS, st["desktop_effect"], lambda v: self.set_effect(desktop=v)), 1, 0, 1, 1)
+        box.attach(label("Lock screen", "dim"), 0, 1, 1, 1)
+        box.attach(combo(wp.EFFECTS, st["lock_effect"], lambda v: self.set_effect(lock=v)), 1, 1, 1, 1)
         box.set_sensitive(not self.walling)
         self.row("Effects", box, hint="Applied to a copy; theme colours always come from the original")
 

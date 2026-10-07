@@ -34,7 +34,7 @@ class DisplayPage(Page):
         self.row("Warmer colours in the evening", self.sw, hint="Also SUPER+N")
         self.temp = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 2500, 6000, 100)
         self.temp.set_value(store.get("nightlight_temp"))
-        self.temp.set_size_request(260, -1)
+        self.temp.set_size_request(160, -1)
         self.temp.set_draw_value(False)
         self.tlabel = Gtk.Label(label=f"{int(self.temp.get_value())} K", width_chars=7, xalign=1)
         self.pending = None

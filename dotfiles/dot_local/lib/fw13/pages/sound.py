@@ -2,7 +2,7 @@
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib, Gtk, Pango  # noqa: E402
 
 from .. import sound  # noqa: E402
 from .common import Page, label, launch  # noqa: E402
@@ -37,20 +37,27 @@ class SoundPage(Page):
         if d["default"]:
             radio.get_style_context().add_class("primary")
         radio.connect("clicked", lambda _b: (sound.set_default(d["id"]), self.refresh()))
-        r.pack_start(radio, False, False, 0)
+        radio.get_child().set_ellipsize(Pango.EllipsizeMode.END)  # long device names: Settings at half a screen
+        radio.get_child().set_xalign(0)
+        radio.set_tooltip_text(d["name"])
+        r.pack_start(radio, True, True, 0)
         mute = Gtk.ToggleButton(label="" if d["muted"] else "")
         mute.set_active(d["muted"])
         mute.connect("toggled", lambda b: (sound.set_mute(d["id"], b.get_active()),
                                            b.set_label("" if b.get_active() else "")))
         vol = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
         vol.set_draw_value(False)
-        vol.set_size_request(220, -1)
+        vol.set_size_request(140, -1)
         vol.set_value(round(min(d["volume"], 1.0) * 100))
         pct = label(f"{int(vol.get_value())}%", width_chars=4, xalign=1)
         vol.connect("value-changed", self.on_volume, d["id"], pct)
-        r.pack_end(pct, False, False, 0)
-        r.pack_end(vol, False, False, 0)
-        r.pack_end(mute, False, False, 0)
+        controls = Gtk.Box(spacing=12)
+        controls.pack_start(mute, False, False, 0)
+        controls.pack_start(vol, False, False, 0)
+        controls.pack_start(pct, False, False, 0)
+        controls.set_valign(Gtk.Align.CENTER)
+        r.pack_end(controls, False, False, 0)
+        self.adapt(r, controls)  # narrow: device name on its own line, controls under it
         self.add_widget(r)
 
     def on_volume(self, scale, node_id, pct):

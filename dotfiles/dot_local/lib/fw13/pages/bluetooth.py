@@ -8,7 +8,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from .. import bt  # noqa: E402
 from ..ui_theme import button  # noqa: E402
-from .common import Page, label, launch  # noqa: E402
+from .common import Page, label, launch, wrap  # noqa: E402
 
 SCAN_SECONDS = 20
 WATCHED = {"Powered", "Alias", "Name", "Connected", "Paired", "Trusted", "Percentage"}
@@ -141,7 +141,7 @@ class BluetoothPage(Page):
             self.new_box.remove(self.new_empty)
             self.new_empty = None
         if text and not self.new_empty:
-            self.new_empty = label(text, "dim")
+            self.new_empty = wrap(label(text, "dim"))
             self.new_box.pack_start(self.new_empty, False, False, 0)
             self.new_empty.show()
 
@@ -161,7 +161,7 @@ class BluetoothPage(Page):
         r.get_style_context().add_class("item")
         r.pack_start(label(bt.icon(d["icon"]), width_chars=2, xalign=0.5), False, False, 0)
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        left.pack_start(label(d["alias"]), False, False, 0)
+        left.pack_start(wrap(label(d["alias"])), False, False, 0)
         if d["path"] in self.busy:
             left.pack_start(label(self.busy[d["path"]], "warn"), False, False, 0)
         elif d["paired"]:
@@ -196,6 +196,7 @@ class BluetoothPage(Page):
                                           "primary"), False, False, 0)
             buttons.pack_start(button("Forget", lambda: self.set_confirm(path), "danger"), False, False, 0)
         r.pack_end(buttons, False, False, 0)
+        self.adapt(r, buttons)
         return r
 
     # ---- actions (BlueZ calls run in worker threads)
