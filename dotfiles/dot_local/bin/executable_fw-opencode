@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -110,6 +111,12 @@ def generate(st, lst):
 
 
 def fuzzel(rows, prompt, pos, lines=None):
+    # fuzzel allows one instance (a lock in $XDG_RUNTIME_DIR): a prompt opened right after the previous menu closed
+    # fails silently unless that one has exited ("Add server…" showed nothing). Wait for it, at most 2 s.
+    for _ in range(40):
+        if subprocess.run(["pgrep", "-x", "fuzzel"], capture_output=True).returncode:
+            break
+        time.sleep(0.05)
     r = subprocess.run(["fuzzel", "--dmenu", *pos, "--prompt", f"{prompt} › ", "--width", "64",
                         "--lines", str(lines if lines is not None else len(rows))],
                        input="\n".join(rows), capture_output=True, text=True)
@@ -153,7 +160,10 @@ def panel(pos):
     pick = fuzzel(rows, "OpenCode", pos)
     if pick is None:
         return
-    kind, arg = actions[rows.index(pick)] if pick in rows else (None, None)
+    # fuzzel()'s answer is stripped, and most rows start with spaces (alignment): match on the stripped text, or
+    # "+ Add server…", "Open OpenCode" and every non-active server did nothing.
+    by_text = {r.strip(): a for r, a in zip(rows, actions)}
+    kind, arg = by_text.get(pick.strip(), (None, None))
     if kind == "use":
         st["active"] = arg
         save_state(st)

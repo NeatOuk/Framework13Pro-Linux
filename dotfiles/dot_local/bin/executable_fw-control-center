@@ -12,7 +12,10 @@ if [[ -n ${FW_BAR:-} ]]; then
   (( ${#pos[@]} )) || exit 0
 fi
 
-menu() { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}"; }
+# fuzzel allows one instance (a lock in $XDG_RUNTIME_DIR): the next prompt (e.g. the Wi-Fi password) fails silently if
+# the previous menu hasn't exited yet. Wait for it, at most 2 s.
+fuzzel_free() { local _; for _ in {1..40}; do pgrep -x fuzzel >/dev/null || return 0; sleep 0.05; done; }
+menu() { fuzzel_free; fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}"; }
 
 volume() {
   local cur pick
@@ -47,11 +50,19 @@ wifi() {
     nmcli connection up id "$ssid" >/dev/null && fw-notify "Wi-Fi" "Connected to $ssid" || fw-notify "Wi-Fi" "Could not connect to $ssid"
     return
   fi
-  pw="$(fuzzel --dmenu "${pos[@]}" --password --prompt "Password for $ssid › " --lines 0)" || return 0
-  if nmcli dev wifi connect "$ssid" ${pw:+password "$pw"} >/dev/null; then
+  # New network: fw13.net joins it (the same code as Settings → Network). The password reaches it on stdin, written
+  # by bash's printf builtin, and nmcli through a 0600 passwd-file, so it is never on any command line.
+  local net=(env PYTHONPATH="$HOME/.local/lib" python3 -m fw13.net) kind err
+  kind="$("${net[@]}" security "$ssid" 2>&1)" || { fw-notify "Wi-Fi" "$ssid: $kind (Settings → Network → Advanced…)"; return; }
+  pw=""
+  if [[ $kind == password ]]; then
+    fuzzel_free
+    pw="$(fuzzel --dmenu "${pos[@]}" --password --prompt "Password for $ssid › " --lines 0)" || return 0
+  fi
+  if err="$(printf '%s' "$pw" | "${net[@]}" connect "$ssid" 2>&1)"; then
     fw-notify "Wi-Fi" "Connected to $ssid"
   else
-    fw-notify "Wi-Fi" "Could not connect to $ssid"
+    fw-notify "Wi-Fi" "Could not connect to $ssid${err:+: ${err##*$'\n'}}"
   fi
 }
 

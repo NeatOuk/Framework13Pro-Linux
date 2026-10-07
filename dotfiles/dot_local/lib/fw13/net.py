@@ -1,7 +1,13 @@
-"""Wi-Fi, Ethernet and VPN through NetworkManager's nmcli (terse, escaped output)."""
+"""Wi-Fi, Ethernet and VPN through NetworkManager's nmcli (terse, escaped output).
+
+Also a tiny CLI for shell scripts (the bar's Wi-Fi menu), so they never put a password on a command line:
+  python3 -m fw13.net security <ssid>   prints "open", "password" or why it can't be joined here (exit 0/0/3)
+  python3 -m fw13.net connect <ssid>    password (if any) on stdin; joins through connect_new()'s passwd-file
+"""
 import os
 import re
 import subprocess
+import sys
 import tempfile
 
 WIFI = "802-11-wireless"
@@ -178,3 +184,32 @@ def connect_new(ssid, security, password, ifname="", hidden=False):
         forget(uuid)
         return err
     return None
+
+
+def _security_of(ssid):
+    return next((n["security"] for n in networks() if n["ssid"] == ssid), None)
+
+
+def main(argv):
+    if len(argv) != 2 or argv[0] not in ("security", "connect"):
+        print("usage: python3 -m fw13.net security|connect <ssid>", file=sys.stderr)
+        return 2
+    cmd, ssid = argv
+    security = _security_of(ssid)
+    if security is None:
+        print("Network not in range", file=sys.stderr)
+        return 1
+    why = unsupported(security)
+    if cmd == "security":
+        print(why or ("password" if needs_password(security) else "open"))
+        return 3 if why else 0
+    password = sys.stdin.read().rstrip("\n") if needs_password(security) else ""
+    err = connect_new(ssid, security, password)
+    if err:
+        print(err.strip() or "Could not connect", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
