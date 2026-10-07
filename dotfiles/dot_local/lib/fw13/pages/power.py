@@ -1,10 +1,10 @@
-"""Power: battery state, time left/to full, health, power profile, 80 % charge limit."""
+"""Power: battery state, time left/to full, health, power profile, 80 % charge limit, screen & sleep timeouts."""
 import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk  # noqa: E402
 
-from .. import power  # noqa: E402
+from .. import idle, power  # noqa: E402
 from .common import Page, label  # noqa: E402
 
 
@@ -51,6 +51,19 @@ class PowerPage(Page):
                 rb.set_active(name == active)
                 rb.connect("toggled", lambda r, n=name: r.get_active() and power.set_profile(n))
                 self.add_widget(rb)
+        self.heading("Screen & sleep")
+        cur = idle.get()
+        for key, text, hint in (("idle_dim", "Dim the screen after", "to 10 % brightness; any input restores it"),
+                                ("idle_lock", "Lock after", "SUPER+L locks right away"),
+                                ("idle_screen_off", "Turn the screen off after", None),
+                                ("idle_suspend", "Suspend after", "the laptop also locks before sleeping")):
+            combo = Gtk.ComboBoxText()
+            choices = sorted(set(idle.CHOICES) | {cur[key]})
+            for s in choices:
+                combo.append(str(s), idle.label(s))
+            combo.set_active_id(str(cur[key]))
+            combo.connect("changed", lambda c, k=key: idle.write({k: int(c.get_active_id())}))
+            self.row(text, combo, hint=hint)
         if not b and not names:
             self.add_widget(label("No battery or power profile service found.", "dim"))
         self.show_all()
