@@ -1,0 +1,11 @@
+[Desktop Entry]
+# Overrides /etc/xdg/autostart/blueman.desktop, which uwsm runs: in Hyprland, blueman-applet is started by
+# hypr/autostart.lua with its tray icon turned off (the bar's bluetooth module replaces it). Other desktops unchanged.
+Name=Blueman Applet
+Comment=Blueman Bluetooth Manager
+Icon=blueman
+Exec=blueman-applet
+Terminal=false
+Type=Application
+Categories=
+NotShowIn=Hyprland;

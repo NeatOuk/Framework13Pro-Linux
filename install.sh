@@ -98,6 +98,8 @@ system_phase() {
   say "System files"
   $SUDO install -m 0755 system/usr/local/bin/* /usr/local/bin/
   $SUDO install -m 0644 system/etc/systemd/system/* /etc/systemd/system/
+  # Hide the plain "Hyprland" login entry: only "Hyprland (uwsm)" should be picked.
+  $SUDO install -D -m 0644 system/usr/local/share/wayland-sessions/hyprland.desktop /usr/local/share/wayland-sessions/hyprland.desktop
   # Hyprland session for GDM/SDDM/greetd, if the package didn't ship one
   if [[ ! -e /usr/share/wayland-sessions/hyprland-uwsm.desktop ]]; then
     $SUDO install -d /usr/local/share/wayland-sessions

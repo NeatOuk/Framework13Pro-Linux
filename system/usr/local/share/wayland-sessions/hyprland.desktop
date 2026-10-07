@@ -1,0 +1,12 @@
+[Desktop Entry]
+# fw13-hypr: hides the plain "Hyprland" login entry (from the hyprland package, /usr/share/wayland-sessions)
+# so only "Hyprland (uwsm)" is offered — without uwsm the portal and session services don't start.
+# /usr/local/share wins over /usr/share for the same file name. Keep Exec: `uwsm start hyprland.desktop`
+# reads this entry. NoDisplay (not Hidden, which would mean "deleted") only hides it from the menu.
+Name=Hyprland
+Comment=An intelligent dynamic tiling Wayland compositor
+Exec=/usr/bin/start-hyprland
+Type=Application
+DesktopNames=Hyprland
+Keywords=tiling;wayland;compositor;
+NoDisplay=true

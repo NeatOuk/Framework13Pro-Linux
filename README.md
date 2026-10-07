@@ -98,7 +98,7 @@ Hyprland's config is **Lua** (`~/.config/hypr/hyprland.lua`, which `require()`s 
 - **Saved display layouts** from the display panel live in `~/.config/hypr/displays.lua`.
 - **Check a config without starting Hyprland:** `Hyprland --verify-config -c ~/.config/hypr/hyprland.lua` (CI runs this too). It catches syntax errors and unknown settings, but not wrong dispatcher arguments.
 - **Scripts talk Lua too:** `hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })'`, and `hyprctl eval '<lua>'` replaces `hyprctl keyword`.
-- **Log in with "Hyprland (uwsm)"**, not plain "Hyprland": without uwsm the desktop portal (file pickers, screen sharing) and other session services don't start.
+- **Log in with "Hyprland (uwsm)"**: without uwsm the desktop portal (file pickers, screen sharing) and other session services don't start, so the installer hides the plain "Hyprland" entry (`/usr/local/share/wayland-sessions/hyprland.desktop`, `NoDisplay=true`). Under uwsm the standard autostart list also runs; `~/.config/autostart` hides nm-applet and blueman there, since the bar replaces their tray icons.
 
 **Notes / later:**
 - Per-screen workspaces are still a Python helper (`fw-workspaces`: a daemon plus one process per SUPER+N). With Lua they could live in the config itself: SUPER+N as a Lua function using `hl.get_active_monitor()`, hotplug via `hl.on(...)` monitor events, the login layout via exec rules. That means no background process and faster keys; it was left as a straight port for now to keep the migration small.

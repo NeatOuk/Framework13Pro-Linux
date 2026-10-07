@@ -19,6 +19,7 @@ from gi.repository import Gio, GLib  # noqa: E402
 
 COREDUMP = "fc2e22bc6ee647b6b90729ab34a250b1"
 UNIT_FAILED = "d9b373ed55a64feb8242e02dbe79a49c"
+MY_UID = os.getuid()
 QUIET = 600  # seconds before the same app/unit may notify again
 IGNORE = os.path.expanduser("~/.config/fw-crash-watch/ignore")
 REPORTS = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jarvis")
@@ -65,6 +66,11 @@ class Watcher:
         return True
 
     def handle(self, e):
+        # Only this user and system services: the login screen (GDM) runs its own short-lived users
+        # (uid 60000+) whose services fail routinely when it hands over to a session.
+        uid = int(e.get("COREDUMP_UID") or e.get("_UID") or 0)
+        if uid not in (0, MY_UID) and uid >= 1000:
+            return
         if e.get("MESSAGE_ID") == COREDUMP:
             name = e.get("COREDUMP_COMM") or os.path.basename(e.get("COREDUMP_EXE", "?"))
             ev = {"kind": "crash", "key": name, "pid": e.get("COREDUMP_PID", ""),

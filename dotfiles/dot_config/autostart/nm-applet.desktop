@@ -1,0 +1,12 @@
+[Desktop Entry]
+# Overrides /etc/xdg/autostart/nm-applet.desktop, which uwsm runs: in Hyprland the bar's network module and
+# fw-control-center (Wi-Fi menu, asks for passwords) replace the tray applet. GNOME/KDE never used it anyway.
+Name=NetworkManager Applet
+Comment=Manage your network connections
+Icon=nm-device-wireless
+Exec=nm-applet
+Terminal=false
+Type=Application
+NoDisplay=true
+NotShowIn=KDE;GNOME;Hyprland;
+X-GNOME-UsesNotifications=true
