@@ -5,10 +5,16 @@ if [[ -n ${FW_BAR:-} ]]; then
   mapfile -t pos < <(fw-menu-anchor system)
   (( ${#pos[@]} )) || exit 0
 fi
+# uwsm-managed session ("Hyprland (uwsm)" at login): stop it cleanly. Otherwise (plain "Hyprland")
+# uwsm stop does nothing, so end the login session through logind.
+logout() {
+  if uwsm check is-active >/dev/null 2>&1; then uwsm stop
+  else loginctl terminate-session "${XDG_SESSION_ID:-$(loginctl show-user "$USER" -p Display --value)}"; fi
+}
 case "$(printf '  Lock\n  Suspend\n  Log out\n  Reboot\n  Shutdown\n' | fuzzel --dmenu "${pos[@]}" --prompt 'System › ' --lines 5)" in
   *Lock)     loginctl lock-session ;;
   *Suspend)  systemctl suspend ;;
-  *"Log out") uwsm stop ;;
+  *"Log out") logout ;;
   *Reboot)   systemctl reboot ;;
   *Shutdown) systemctl poweroff ;;
 esac
