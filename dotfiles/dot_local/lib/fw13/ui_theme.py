@@ -56,7 +56,7 @@ radiobutton:hover radio, checkbutton:hover check { background: $surface3; }
 radiobutton:hover radio:checked, checkbutton:hover check:checked { background: $accent; }
 /* fw-settings sidebar */
 .sidebar { background: $bg_dim; }
-.sidebar row { padding: 8px 14px; border-left: 3px solid transparent; color: $fg; }
+.sidebar row { padding: 8px 14px; margin: 0; border-radius: 0; border-left: 3px solid transparent; color: $fg; }
 .sidebar row:selected { background: $surface2; border-left-color: $accent; color: $fg_bright; }
 .sidebar row:hover { background: $surface; }
 list, list row { background: transparent; }

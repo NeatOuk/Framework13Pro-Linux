@@ -9,7 +9,7 @@ window#waybar { background: @bg; color: @fg; }
 #custom-ws1.occupied, #custom-ws2.occupied, #custom-ws3.occupied, #custom-ws4.occupied, #custom-ws5.occupied { color: @fg; }
 #custom-ws1.active, #custom-ws2.active, #custom-ws3.active, #custom-ws4.active, #custom-ws5.active { color: @accent; }
 #custom-ws1:hover, #custom-ws2:hover, #custom-ws3:hover, #custom-ws4:hover, #custom-ws5:hover { color: @fg; }
-#tray, #bluetooth, #network, #pulseaudio, #custom-display, #custom-jarvis, #custom-claude, #custom-opencode, #cpu, #battery { padding: 0 9px; }
+#tray, #bluetooth, #network, #pulseaudio, #custom-display, #custom-wallpaper, #custom-jarvis, #custom-claude, #custom-opencode, #cpu, #battery { padding: 0 9px; }
 #custom-control { padding: 0 9px; }
 #custom-power { padding: 0 14px 0 9px; color: @red; }
 #battery.warning { color: @yellow; }

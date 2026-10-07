@@ -12,14 +12,13 @@ import shutil
 import subprocess
 import tempfile
 import threading
-import time
 
 from . import store
 from .hypr import hypr, lua, q
 
 DIR = os.path.expanduser("~/.config/hypr")
 PATH = os.path.join(DIR, "settings.lua")
-WALLPAPER = os.path.join(DIR, "wallpaper.jpg")  # hyprpaper.conf and hyprlock.conf read this path
+WALLPAPER = os.path.join(DIR, "wallpaper.jpg")  # old single wallpaper; fw13.wallpaper keeps it = desktop image
 # Every key must exist in /usr/share/hypr/stubs/hl.meta.lua (dots = nesting in the Lua table).
 KEYS = {
     "general.gaps_in": int,
@@ -235,48 +234,16 @@ def check_layout(text):
 
 
 def wallpaper():
-    return WALLPAPER if os.path.isfile(WALLPAPER) else None
+    """The current wallpaper's original (fw13.wallpaper), else the old ~/.config/hypr/wallpaper.jpg; or None."""
+    from . import wallpaper as wp  # lazy: wallpaper imports theme, which imports this module lazily too
+    return wp.current() or (WALLPAPER if os.path.isfile(WALLPAPER) else None)
 
 
 def set_wallpaper(src):
-    """Store `src` as ~/.config/hypr/wallpaper.jpg (converted to JPEG if needed) and restart hyprpaper.
-
-    hyprpaper 0.8 has no reload IPC we can rely on (`hyprctl hyprpaper` answers "Invalid request"), so restart it.
-    Returns None or an error.
-    """
-    import gi
-    gi.require_version("GdkPixbuf", "2.0")
-    from gi.repository import GdkPixbuf, GLib
-
-    info = GdkPixbuf.Pixbuf.get_file_info(src)
-    if not info or info[0] is None:
-        return "Not an image GTK can read"
-    os.makedirs(DIR, exist_ok=True)
-    tmp = WALLPAPER + ".tmp"
-    try:
-        if info[0].get_name() == "jpeg":
-            shutil.copyfile(src, tmp)
-        else:
-            pb = GdkPixbuf.Pixbuf.new_from_file(src)
-            pb = pb.apply_embedded_orientation() or pb
-            if pb.get_has_alpha():  # JPEG has no alpha: flatten onto the theme background
-                from .theme import palette
-                w, h = pb.get_width(), pb.get_height()
-                flat = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, w, h)
-                flat.fill(int(palette()["bg"].lstrip("#")[:6] + "ff", 16))
-                pb.composite(flat, 0, 0, w, h, 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
-                pb = flat
-            pb.savev(tmp, "jpeg", ["quality"], ["95"])
-        os.replace(tmp, WALLPAPER)
-    except (OSError, GLib.Error) as e:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        return f"Could not save the wallpaper: {e}"
-    subprocess.run(["pkill", "-x", "hyprpaper"])
-    for _ in range(20):  # let the old one release the layer surface first
-        if subprocess.run(["pgrep", "-x", "hyprpaper"], capture_output=True).returncode:
-            break
-        time.sleep(0.1)
-    subprocess.Popen(["uwsm", "app", "--", "hyprpaper"], start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return None
+    """Copy `src` into the wallpaper library and make it the wallpaper (fw13.wallpaper.set: desktop and lock
+    images, hyprpaper restart, theme colours when they follow the wallpaper). Returns None or an error."""
+    from . import wallpaper as wp
+    added = wp.add([src])
+    if not added:
+        return "Not a picture that can be used as a wallpaper"
+    return wp.set(added[0])

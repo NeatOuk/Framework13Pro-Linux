@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Wallpaper picker: a strip of the pictures in ~/Pictures/Wallpapers; click (or arrows + Enter) to use one.
+
+  fw-wallpaper                      picker popup (SUPER+W centred; bar icon with FW_BAR=1 → below the pointer;
+                                    a second call closes it). Esc closes. "+ Add…" copies pictures into the library.
+  fw-wallpaper set <file>           make <file> the wallpaper (it is not copied into the library)
+  fw-wallpaper add <files...>       copy into the library, then use the first one
+  fw-wallpaper effects <desktop> <lock>   none | blur | dim | grey | blur+dim (- keeps one as it is)
+
+The work is fw13.wallpaper (~/.local/lib/fw13): desktop/lock images with their effects, hyprpaper restart, theme
+colours when they follow the wallpaper. GTK3 + gtk-layer-shell, like fw-display-panel.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import threading
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+from fw13 import wallpaper as wp  # noqa: E402
+
+PANEL_W = 900
+THUMB_W = 200
+PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fw-wallpaper.pid")
+DISPLAY_PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fw-display-panel.pid")
+
+
+def cli(args):
+    """Subcommands; prints the error and returns 1 on failure."""
+    cmd, rest = args[0], args[1:]
+    if cmd == "set" and len(rest) == 1:
+        err = wp.set(rest[0])
+    elif cmd == "add" and rest:
+        added = wp.add(rest)
+        err = wp.set(added[0]) if added else "None of those pictures could be added"
+        if added:
+            print("\n".join(added))
+    elif cmd == "effects" and len(rest) == 2:
+        names = [k for k, _ in wp.EFFECTS]
+        d, lk = (None if v == "-" else v for v in rest)
+        if any(v is not None and v not in names for v in (d, lk)):
+            err = f"Effects: {' | '.join(names)} (or - to keep one)"
+        else:
+            err = wp.set_effects(desktop=d, lock=lk)
+    else:
+        print(__doc__.split("\n\n")[0], file=sys.stderr)
+        print("usage: fw-wallpaper [set <file> | add <files...> | effects <desktop> <lock>]", file=sys.stderr)
+        return 2
+    if err:
+        print(f"fw-wallpaper: {err}", file=sys.stderr)
+        return 1
+    return 0
+
+
+# --- single instance: a second call (SUPER+W or the bar icon) closes the open picker ------------------------
+def close_pidfile(path, name):
+    try:
+        pid = int(open(path).read())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            if name.encode() not in f.read():
+                return False
+        os.kill(pid, signal.SIGTERM)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def gui():
+    import gi
+    gi.require_version("Gtk", "3.0")
+    gi.require_version("Gdk", "3.0")
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
+
+    from fw13 import ui_theme
+    from fw13.hypr import hj
+    from fw13.pages.appearance import image_filter, install_thumb_css, load_thumbs, thumb_button
+
+    def right_margin():
+        """Centre the picker under the pointer on the focused monitor, like fw-menu-anchor."""
+        try:
+            cx = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
+                                           text=True, timeout=3).stdout)["x"]
+            m = next(m for m in hj("monitors") if m["focused"])
+            return max(0, int(m["x"] + m["width"] / m["scale"] - cx - PANEL_W / 2))
+        except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError, StopIteration):
+            return 0
+
+    class Picker(Gtk.Window):
+        def __init__(self, at_bar):
+            super().__init__()
+            self.busy = False
+            self.get_style_context().add_class("panel")
+            self.set_size_request(PANEL_W, -1)
+            GtkLayerShell.init_for_window(self)
+            GtkLayerShell.set_namespace(self, "fw-wallpaper")
+            GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+            if at_bar:  # on-demand: the other bar icons stay clickable (see fw-menu-anchor)
+                GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
+                GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
+                GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
+                GtkLayerShell.set_margin(self, GtkLayerShell.Edge.RIGHT, right_margin())
+            else:  # from the keyboard: take the keys at once (arrows + Enter), centred
+                GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.EXCLUSIVE)
+            self.connect("key-press-event", self.key)
+
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            for side in ("top", "bottom", "start", "end"):
+                getattr(box, f"set_margin_{side}")(14)
+            head = Gtk.Box(spacing=8)
+            head.pack_start(ui_theme.label("Wallpaper", "title"), True, True, 0)
+            self.add_btn = ui_theme.button("+ Add…", self.add_pictures)
+            head.pack_end(self.add_btn, False, False, 0)
+            box.pack_start(head, False, False, 0)
+
+            lib, cur = wp.library(), wp.current()
+            cur = os.path.realpath(cur) if cur else None
+            self.strip = Gtk.Box(spacing=8)
+            items, focus = [], None
+            for path in lib:
+                is_cur = os.path.realpath(path) == cur
+                b = thumb_button(path, THUMB_W, is_cur, self.apply)
+                self.strip.pack_start(b, False, False, 0)
+                items.append((path, b.image))
+                if is_cur or focus is None:  # start on the current one (else the first)
+                    focus = b
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
+            scroll.set_min_content_height(THUMB_W * 9 // 16 + 30)
+            scroll.add(self.strip)
+            # keyboard focus moving along the strip scrolls it into view
+            self.strip.set_focus_hadjustment(scroll.get_hadjustment())
+            if lib:
+                box.pack_start(scroll, False, False, 0)
+            else:
+                box.pack_start(ui_theme.label("No pictures in " + wp.library_dir().replace(
+                    os.path.expanduser("~"), "~", 1) + " yet: + Add… copies some in", "dim"), False, False, 0)
+            self.status = ui_theme.label("Click or Enter to use · Esc closes", "dim")
+            box.pack_start(self.status, False, False, 0)
+            self.add(box)
+            install_thumb_css(self)
+            load_thumbs(items, THUMB_W)
+            self.first = focus
+
+        def key(self, _w, e):
+            if e.keyval == Gdk.KEY_Escape and not self.busy:
+                Gtk.main_quit()
+                return True
+            return False
+
+        def say(self, text, css="dim"):
+            ctx = self.status.get_style_context()
+            for c in ("dim", "bad"):
+                ctx.remove_class(c)
+            ctx.add_class(css)
+            self.status.set_text(text)
+
+        def run(self, work, msg):
+            """work() in a thread; close when it succeeds, else show the error and stay open."""
+            if self.busy:
+                return
+            self.busy = True
+            self.strip.set_sensitive(False)
+            self.add_btn.set_sensitive(False)
+            self.say(msg)
+
+            def done(err):
+                self.busy = False
+                if not err:
+                    Gtk.main_quit()
+                    return False
+                self.say(err, "bad")
+                self.strip.set_sensitive(True)
+                self.add_btn.set_sensitive(True)
+                return False
+
+            def thread():
+                try:
+                    err = work()
+                except Exception as e:  # noqa: BLE001 — shown in the picker instead of a dead thread
+                    err = f"Error: {e}"
+                GLib.idle_add(done, err)
+            # not a daemon: closing the picker (SIGTERM → main_quit) must not cut a wallpaper write short
+            threading.Thread(target=thread).start()
+
+        def apply(self, path):
+            self.run(lambda: wp.set(path), "Setting wallpaper…")
+
+        def add_pictures(self):
+            # The picker sits on the overlay layer, above any normal window: hide it while the dialog is open.
+            self.hide()
+            dlg = Gtk.FileChooserDialog(title="Add wallpapers", action=Gtk.FileChooserAction.OPEN)
+            dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Add", Gtk.ResponseType.ACCEPT)
+            dlg.set_select_multiple(True)
+            dlg.add_filter(image_filter())
+            pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+            if pictures and os.path.isdir(pictures):
+                dlg.set_current_folder(pictures)
+            files = dlg.get_filenames() if dlg.run() == Gtk.ResponseType.ACCEPT else []
+            dlg.destroy()
+            self.show_all()
+            if files:
+                def work():
+                    added = wp.add(files)
+                    return wp.set(added[0]) if added else "None of those pictures could be added"
+                self.run(work, "Adding and setting the wallpaper…")
+
+    if close_pidfile(PIDFILE, "fw-wallpaper"):
+        return 0
+    at_bar = bool(os.environ.get("FW_BAR"))
+    subprocess.run(["pkill", "-x", "fuzzel"])  # close any open bar menu
+    close_pidfile(DISPLAY_PIDFILE, "fw-display-panel")
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    try:  # the pidfile goes away whatever happens below
+        ui_theme.install()
+        picker = Picker(at_bar)
+        picker.connect("destroy", Gtk.main_quit)
+        try:  # GLibUnix is the newer home of unix_signal_add
+            from gi.repository import GLibUnix
+            GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
+        except ImportError:
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
+        picker.show_all()
+        if picker.first:
+            picker.first.grab_focus()
+        Gtk.main()
+    finally:
+        try:
+            if open(PIDFILE).read() == str(os.getpid()):
+                os.remove(PIDFILE)
+        except OSError:
+            pass
+    return 0
+
+
+def main():
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ("-h", "--help"):
+            print(__doc__)
+            return 0
+        return cli(sys.argv[1:])
+    return gui()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

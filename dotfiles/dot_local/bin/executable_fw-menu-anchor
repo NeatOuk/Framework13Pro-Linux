@@ -7,11 +7,13 @@ set -euo pipefail
 
 name="${1:-menu}"
 state="${XDG_RUNTIME_DIR:-/tmp}/fw-menu-open"
-# The display panel is GTK, not fuzzel: close it the same way.
-panel="${XDG_RUNTIME_DIR:-/tmp}/fw-display-panel.pid"
-if pid="$(cat "$panel" 2>/dev/null)" && grep -qa fw-display-panel "/proc/$pid/cmdline" 2>/dev/null; then
-  kill "$pid"
-fi
+# The display panel and the wallpaper picker are GTK, not fuzzel: close them via their pidfiles.
+for gui in fw-display-panel fw-wallpaper; do
+  panel="${XDG_RUNTIME_DIR:-/tmp}/$gui.pid"
+  if pid="$(cat "$panel" 2>/dev/null)" && grep -qa "$gui" "/proc/$pid/cmdline" 2>/dev/null; then
+    kill "$pid"
+  fi
+done
 if pkill -x fuzzel; then
   [[ $(cat "$state" 2>/dev/null) == "$name" ]] && { rm -f "$state"; exit 1; }
   for _ in {1..40}; do pgrep -x fuzzel >/dev/null || break; sleep 0.05; done  # let it release its lock

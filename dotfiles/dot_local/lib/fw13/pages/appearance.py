@@ -1,21 +1,24 @@
-"""Appearance: theme colours (wallpaper palette via matugen, or Tokyo Night), wallpaper, window gaps and border
-size (rounding stays 0 — house style).
+"""Appearance: theme colours (wallpaper palette via matugen, or Tokyo Night), wallpaper gallery and effects,
+window gaps and border size (rounding stays 0 — house style).
 
 HyprPage is shared with Input: both write ~/.config/hypr/settings.lua through fw13.hyprsettings.
+The thumbnail helpers (thumb_button, load_thumbs, install_thumb_css) are shared with fw-wallpaper.
 """
 import os
+import string
 import threading
 
 import gi
 
 gi.require_version("Gtk", "3.0")
-gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .. import hyprsettings as hs  # noqa: E402
 from .. import theme  # noqa: E402
+from .. import wallpaper as wp  # noqa: E402
 from ..ui_theme import button, current, rgb, sync, watch  # noqa: E402
-from .common import Page, label  # noqa: E402
+from .common import Page, label, launch  # noqa: E402
 
 
 def background(work, done):
@@ -121,6 +124,7 @@ class HyprPage(Page):
         return self.row(text, box, hint=hint)
 
 
+THUMB_W = 160
 MODES = (("dark", "Dark"), ("light", "Light"))
 STYLES = (("scheme-tonal-spot", "Tonal spot (default)"), ("scheme-content", "Content"),
           ("scheme-expressive", "Expressive"), ("scheme-vibrant", "Vibrant"), ("scheme-neutral", "Neutral"),
@@ -156,6 +160,82 @@ def swatches():
     return box
 
 
+THUMB_CSS = string.Template("""
+button.thumb { padding: 0; border: 3px solid transparent; background: $surface; }
+button.thumb:hover, button.thumb:focus { border-color: $fg_dim; }
+button.thumb.current, button.thumb.current:hover, button.thumb.current:focus { border-color: $accent; }
+""")
+_thumb_provider = None
+
+
+def install_thumb_css(widget):
+    """Style .thumb buttons (current one: accent border) and follow theme changes while `widget` lives."""
+    global _thumb_provider
+
+    def load():
+        _thumb_provider.load_from_data(THUMB_CSS.substitute({k: v[:7] for k, v in current().items()}).encode())
+    if _thumb_provider is None:
+        _thumb_provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), _thumb_provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+    load()
+    watch(widget, load)
+
+
+def thumb_button(path, w, is_current, on_activate, on_menu=None):
+    """A flat button showing `path`'s thumbnail (filled in later by load_thumbs; .image is its Gtk.Image).
+    on_activate(path) on click/Enter; on_menu(path, event) on a right click."""
+    b = Gtk.Button()
+    b.get_style_context().add_class("thumb")
+    if is_current:
+        b.get_style_context().add_class("current")
+    img = Gtk.Image()
+    img.set_size_request(w, w * 9 // 16)
+    b.add(img)
+    b.image = img
+    b.set_tooltip_text(os.path.basename(path) + ("  (current)" if is_current else ""))
+    b.connect("clicked", lambda _b: on_activate(path))
+    if on_menu:
+        b.connect("button-press-event",
+                  lambda _b, e: e.button == Gdk.BUTTON_SECONDARY and (on_menu(path, e) or True))
+    return b
+
+
+def _show_thumb(img, png):
+    if png and img.get_parent() is not None:  # still on screen (a page refresh drops old buttons)
+        img.set_from_file(png)
+    return False
+
+
+def load_thumbs(items, w):
+    """Make/load thumbnails for [(path, Gtk.Image)] in a thread and show each as it is ready."""
+    def run():
+        for path, img in items:
+            try:
+                png = wp.thumbnail(path, w)
+            except Exception:  # noqa: BLE001 — one bad picture must not stop the rest
+                png = None
+            GLib.idle_add(_show_thumb, img, png)
+    threading.Thread(target=run, daemon=True).start()
+
+
+def image_filter():
+    f = Gtk.FileFilter()
+    f.set_name("Pictures")
+    for e in wp.readable_exts():
+        f.add_pattern("*" + e)
+        f.add_pattern("*" + e.upper())
+    return f
+
+
+def add_and_set(files):
+    """Background work for "+ Add…": copy into the library, then make the first one the wallpaper."""
+    added = wp.add(files)
+    if not added:
+        return "None of those pictures could be added"
+    return wp.set(added[0])
+
+
 def combo(options, active, cb):
     c = Gtk.ComboBoxText()
     for key, text in options:
@@ -171,6 +251,9 @@ class AppearancePage(HyprPage):
         self.confirm = False  # "Reset to defaults" clicked once: show Cancel / Reset
         self.theming = False  # a theme change is running (matugen takes ~1 s): controls are insensitive
         self.queued = None    # (source, mode, type) asked for while one was running: run it next
+        self.walling = False  # a wallpaper change (set / add / remove / effect) is running
+        self.removing = None  # picture right-clicked → "Remove from library": show Cancel / Remove
+        install_thumb_css(self)
         self.refresh()
 
     def theme_section(self):
@@ -206,7 +289,8 @@ class AppearancePage(HyprPage):
         self.theming = True
         self.show_status("Reading colours from the wallpaper…" if source == "wallpaper" else "Applying theme…",
                          "dim")
-        background(lambda: theme.set_source(source, mode=mode, scheme_type=scheme_type), self.theme_set)
+        # via fw13.wallpaper: colours from the original picture, not the desktop image with its effect
+        background(lambda: wp.set_theme(source, mode=mode, scheme_type=scheme_type), self.theme_set)
         GLib.idle_add(self.refresh_if_open)  # grey out the controls (not from inside their own signal)
 
     def theme_set(self, err):
@@ -231,19 +315,7 @@ class AppearancePage(HyprPage):
     def refresh(self):
         self.clear()
         self.theme_section()
-        self.heading("Wallpaper")
-        path = hs.wallpaper()
-        if path:
-            try:
-                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 320, 180, True)
-                img = Gtk.Image.new_from_pixbuf(pb)
-                img.set_halign(Gtk.Align.START)
-                self.add_widget(img)
-            except GLib.Error:
-                path = None
-        self.row("~/.config/hypr/wallpaper.jpg" if path else "No wallpaper set",
-                 button("Choose…", self.choose),
-                 hint="Desktop (hyprpaper) and lock screen (hyprlock)")
+        self.wallpaper_section()
         self.heading("Windows")
         self.slider("Gaps inside", "general.gaps_in", 0, 30, 1, hint="between windows")
         self.slider("Gaps outside", "general.gaps_out", 0, 30, 1, hint="between windows and the screen edge")
@@ -262,31 +334,119 @@ class AppearancePage(HyprPage):
                           "the wallpaper is kept")
         self.show_all()
 
-    def choose(self):
-        dlg = Gtk.FileChooserDialog(title="Choose a wallpaper", transient_for=self.get_toplevel(),
+    def wallpaper_section(self):
+        self.heading("Wallpaper")
+        lib, cur = wp.library(), wp.current()
+        cur = os.path.realpath(cur) if cur else None
+        if lib:
+            flow = Gtk.FlowBox()
+            flow.set_selection_mode(Gtk.SelectionMode.NONE)
+            flow.set_homogeneous(True)
+            flow.set_min_children_per_line(2)
+            flow.set_max_children_per_line(8)
+            flow.set_column_spacing(8)
+            flow.set_row_spacing(8)
+            items = []
+            for path in lib:
+                b = thumb_button(path, THUMB_W, os.path.realpath(path) == cur, self.set_wallpaper, self.thumb_menu)
+                flow.add(b)
+                items.append((path, b.image))
+            flow.set_sensitive(not self.walling)
+            self.add_widget(flow)
+            load_thumbs(items, THUMB_W)
+        else:
+            self.add_widget(label("No pictures yet: add some with + Add…, or put them in the folder", "dim"))
+        if self.removing:
+            box = Gtk.Box(spacing=8)
+            box.pack_start(button("Cancel", lambda: self.ask_remove(None)), False, False, 0)
+            box.pack_start(button("Remove", self.remove_picture, "danger"), False, False, 0)
+            box.set_sensitive(not self.walling)  # a removal now would be dropped by wall_work
+            self.row(f"Remove {os.path.basename(self.removing)} from the library?", box,
+                     hint="Deletes the copy in the wallpaper folder")
+        box = Gtk.Box(spacing=8)
+        add = button("+ Add…", self.add_pictures)
+        add.set_sensitive(not self.walling)
+        box.pack_start(add, False, False, 0)
+        box.pack_start(button("Open folder", self.open_folder), False, False, 0)
+        self.row(wp.library_dir().replace(os.path.expanduser("~"), "~", 1), box,
+                 hint="Click a picture to use it (SUPER+W too); right-click to remove it")
+        st = wp.state()
+        box = Gtk.Box(spacing=8)
+        box.pack_start(label("Desktop", "dim"), False, False, 0)
+        box.pack_start(combo(wp.EFFECTS, st["desktop_effect"], lambda v: self.set_effect(desktop=v)), False, False, 0)
+        box.pack_start(label("Lock screen", "dim"), False, False, 4)
+        box.pack_start(combo(wp.EFFECTS, st["lock_effect"], lambda v: self.set_effect(lock=v)), False, False, 0)
+        box.set_sensitive(not self.walling)
+        self.row("Effects", box, hint="Applied to a copy; theme colours always come from the original")
+
+    def wall_work(self, work, msg):
+        if self.walling:
+            return
+        self.walling = True
+        self.show_status(msg, "dim")
+        background(work, self.wallpaper_done)
+        GLib.idle_add(self.refresh_if_open)  # grey out the gallery (not from inside its own signal)
+
+    def wallpaper_done(self, err):
+        self.walling = False
+        sync()  # palette swatches and the window follow new colours now
+        self.show_status(err)
+        self.refresh_if_open()
+        return False
+
+    def set_wallpaper(self, path):
+        following = theme.state()["source"] == "wallpaper"
+        self.wall_work(lambda: wp.set(path),
+                       "Setting wallpaper and reading its colours…" if following else "Setting wallpaper…")
+
+    def set_effect(self, desktop=None, lock=None):
+        self.wall_work(lambda: wp.set_effects(desktop=desktop, lock=lock), "Rendering the wallpaper…")
+
+    def thumb_menu(self, path, event):
+        menu = Gtk.Menu()
+        item = Gtk.MenuItem(label="Remove from library…")
+        item.connect("activate", lambda _i: self.ask_remove(path))
+        menu.append(item)
+        menu.show_all()
+        menu.attach_to_widget(self, None)
+        menu.popup_at_pointer(event)
+
+    def ask_remove(self, path):
+        self.removing = path
+        self.refresh()
+
+    def remove_picture(self):
+        if self.walling:  # keep the question open until the running task is done
+            self.show_status("Busy: try again in a moment", "dim")
+            return
+        path, self.removing = self.removing, None
+        if path:
+            self.wall_work(lambda: wp.remove(path), "Removing…")
+        else:
+            self.refresh()
+
+    def add_pictures(self):
+        dlg = Gtk.FileChooserDialog(title="Add wallpapers", transient_for=self.get_toplevel(),
                                     action=Gtk.FileChooserAction.OPEN)
-        dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Set wallpaper", Gtk.ResponseType.ACCEPT)
-        f = Gtk.FileFilter()
-        f.set_name("Images")
-        f.add_pixbuf_formats()
-        dlg.add_filter(f)
+        dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Add", Gtk.ResponseType.ACCEPT)
+        dlg.set_select_multiple(True)
+        dlg.add_filter(image_filter())
         pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
         if pictures and os.path.isdir(pictures):
             dlg.set_current_folder(pictures)
-        src = dlg.get_filename() if dlg.run() == Gtk.ResponseType.ACCEPT else None
+        files = dlg.get_filenames() if dlg.run() == Gtk.ResponseType.ACCEPT else []
         dlg.destroy()
-        if src:
-            self.show_status("Setting wallpaper…", "dim")
-            background(lambda: hs.set_wallpaper(src), self.wallpaper_set)
+        if files:
+            self.wall_work(lambda: add_and_set(files), "Adding and setting the wallpaper…")
 
-    def wallpaper_set(self, err):
-        self.show_status(err)
-        if not err and theme.state()["source"] == "wallpaper":  # new image: new colours
-            self.set_theme("wallpaper")
-            return False
-        if not self.closed:
-            self.refresh()
-        return False
+    def open_folder(self):
+        d = wp.library_dir()
+        try:
+            os.makedirs(d, exist_ok=True)
+        except OSError as e:
+            self.show_status(f"Could not create {d}: {e}")
+            return
+        launch("xdg-open", d)
 
     def ask_reset(self, on):
         self.confirm = on
@@ -306,8 +466,8 @@ class AppearancePage(HyprPage):
         self.theming = True
 
         def work():
-            errs = [e for e in (hs.reset(), theme.set_source("tokyo-night", mode="dark",
-                                                             scheme_type=theme.DEFAULT_TYPE)) if e]
+            errs = [e for e in (hs.reset(), wp.set_theme("tokyo-night", mode="dark",
+                                                         scheme_type=theme.DEFAULT_TYPE)) if e]
             return "; ".join(errs) or None
 
         background(work, self.written_reset)
