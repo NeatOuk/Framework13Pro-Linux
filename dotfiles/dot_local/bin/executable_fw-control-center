@@ -67,11 +67,22 @@ wifi() {
 }
 
 bluetooth() {
-  local power pick
-  power="$(bluetoothctl show | awk '/Powered:/ {print $2; exit}')"
+  local power pick ok=0 _
+  # Bluetooth switched off at the radio (rfkill soft block) removes the adapter: bluetoothctl then has no controller
+  # and fails, which under set -e used to end the script before the menu opened. Treat that as "off".
+  power="$(bluetoothctl show 2>/dev/null | awk '/Powered:/ {print $2; exit}')" || true
   pick="$(printf '%s\n' "Turn $([[ $power == yes ]] && echo off || echo on)" "Settings…" "Devices…" | menu Bluetooth 3)" || return 0
   case $pick in
-    Turn*) bluetoothctl power "${pick#Turn }" >/dev/null ;;
+    "Turn off") bluetoothctl power off >/dev/null 2>&1 || true ;;
+    "Turn on")
+      # Lift the radio block first (/dev/rfkill is writable by the seat user, as in fw13.bt), then power on;
+      # bluetoothd sees the unblock a moment later, so retry for a few seconds.
+      rfkill unblock bluetooth 2>/dev/null || true
+      for _ in {1..25}; do
+        if bluetoothctl power on >/dev/null 2>&1; then ok=1; break; fi
+        sleep 0.2
+      done
+      (( ok )) || fw-notify "Bluetooth" "Couldn't turn Bluetooth on (no adapter found?) — see Settings → Bluetooth" ;;
     Sett*) fw-settings bluetooth ;;
     Dev*)  uwsm app -- blueman-manager ;;
   esac
