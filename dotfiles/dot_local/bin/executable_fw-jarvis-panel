@@ -38,18 +38,46 @@ PIDFILE = os.path.join(RUNTIME, "fw-jarvis-panel.pid")
 JDIR = os.path.expanduser("~/.local/share/jarvis")
 PANEL_W = 680
 
-# What the inline agent may do without asking (one-shot mode can't ask): read, search, and read-only commands.
+# What the inline agent may do without asking (one-shot mode can't ask): read anywhere (--add-dir /) except the
+# secret files below, search, and read-only commands, including a few read-only ones as root through passwordless
+# sudo (`sudo -n` fails cleanly where that isn't set up). No cat/head/tail/grep in Bash: they would get around the
+# Read denials, and the Read/Grep tools do the same job.
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "LS",
                    "Bash(journalctl:*)", "Bash(coredumpctl:*)", "Bash(systemctl status:*)",
-                   "Bash(systemctl --user status:*)", "Bash(systemctl list-units:*)", "Bash(systemctl is-active:*)",
-                   "Bash(rpm -q:*)", "Bash(dnf list:*)", "Bash(dnf info:*)", "Bash(ls:*)", "Bash(cat:*)",
-                   "Bash(head:*)", "Bash(tail:*)", "Bash(grep:*)", "Bash(uname:*)", "Bash(lsblk:*)", "Bash(df:*)",
-                   "Bash(free:*)", "Bash(ip addr:*)", "Bash(nmcli:*)", "Bash(hyprctl:*)", "Bash(fwupdmgr get-:*)",
-                   "Bash(sensors:*)", "Bash(upower:*)", "Bash(lspci:*)", "Bash(lsusb:*)", "Bash(git -C:*)"]
+                   "Bash(systemctl --user status:*)", "Bash(systemctl list-units:*)", "Bash(systemctl list-timers:*)",
+                   "Bash(systemctl is-active:*)", "Bash(rpm -q:*)", "Bash(dnf list:*)", "Bash(dnf info:*)",
+                   "Bash(ls:*)", "Bash(uname:*)", "Bash(lsblk:*)", "Bash(df:*)", "Bash(du:*)", "Bash(free:*)",
+                   "Bash(ip addr:*)", "Bash(nmcli:*)", "Bash(hyprctl:*)", "Bash(fwupdmgr get-:*)", "Bash(sensors:*)",
+                   "Bash(upower:*)", "Bash(lspci:*)", "Bash(lsusb:*)", "Bash(git -C:*)", "Bash(flatpak list:*)",
+                   "Bash(sudo -n timeshift --list:*)", "Bash(sudo -n journalctl:*)", "Bash(sudo -n dmesg:*)",
+                   "Bash(sudo -n smartctl -a:*)", "Bash(sudo -n smartctl -H:*)", "Bash(sudo -n nvme smart-log:*)"]
+# Never read inline, even though everything else is readable: keys and passwords.
+SECRET_READS = ["Read(~/.config/chezmoi/**)", "Read(~/.config/restic/**)", "Read(~/.config/environment.d/**)",
+                "Read(~/.ssh/**)", "Read(~/.gnupg/**)", "Read(~/.local/share/keyrings/**)",
+                "Read(~/.config/chromium/**)", "Read(~/.mozilla/**)", "Read(~/.config/gh/**)",
+                "Read(~/.claude.json)", "Read(~/.claude/.credentials.json)", "Read(//etc/shadow)",
+                "Read(//etc/gshadow)", "Read(//etc/sudoers.d/**)", "Read(//etc/NetworkManager/system-connections/**)",
+                "Grep(~/.config/chezmoi/**)", "Grep(~/.config/restic/**)", "Grep(~/.config/environment.d/**)",
+                "Grep(~/.ssh/**)", "Grep(//etc/NetworkManager/system-connections/**)"]
 INLINE_NOTE = ("You are answering inline in Jarvis's small panel. Be brief and practical: short paragraphs, short "
-               "lists, commands in code blocks. You can only read here — never change anything. If a fix needs "
-               "changes (edits, installs, restarts, sudo), explain what you would do and tell the owner to press "
-               "\"Continue in terminal\", where you can do it with their approval.")
+               "lists, commands in code blocks. You can only read here — never change anything. You may read files "
+               "anywhere (key and password files are blocked) and run the allowed read-only commands; for root-only "
+               "facts use `sudo -n timeshift --list`, `sudo -n journalctl`, `sudo -n dmesg` or `sudo -n smartctl`. "
+               "When a fix needs a change, never run it yourself: propose ONE step as an action card and stop. "
+               "The owner sees a Run button; if they press it, you get the command's output and can propose the "
+               "next step. An action card is exactly one fenced block:\n"
+               "```jarvis-action\n"
+               "{\"title\": \"short title\", \"command\": \"the exact single shell command\", "
+               "\"why\": \"what it's for\", \"how\": \"what it changes, and how to undo it\", "
+               "\"root\": false}\n"
+               "```\n"
+               "Use `sudo -n` inside the command for root steps and set root to true. One command per card, no "
+               "interactive programs, nothing that needs a terminal. Bigger jobs (edits across files, many steps) "
+               "belong in \"Continue in terminal\": say so instead of proposing cards.")
+ACTION_RE = re.compile(r"```jarvis-action[ \t]*\n(.*?)(?:\n```|\Z)", re.S)
+DANGER_RE = re.compile(r"\brm\s+-[a-zA-Z]*[rf]|\bdd\b|\bmkfs|\bwipefs\b|--force\b|\bshred\b|>\s*/dev/sd|\bfdisk\b"
+                       r"|\bparted\b|\bchmod\s+-R\b|\bchown\s+-R\b|\bdnf\s+(remove|erase)\b")
+RUN_TIMEOUT = 120
 
 
 def close_running():
@@ -139,6 +167,25 @@ def markdown_to_pango(md):
     return "\n".join(out)
 
 
+def parse_actions(text):
+    """Complete jarvis-action blocks in `text` → [{title, command, why, how, root}] (malformed ones skipped)."""
+    out = []
+    for m in ACTION_RE.finditer(text):
+        if not m.group(0).rstrip().endswith("```"):
+            continue  # cut off
+        try:
+            a = json.loads(m.group(1))
+        except ValueError:
+            continue
+        cmd = str(a.get("command") or "").strip()
+        if not cmd or "\n" in cmd:
+            continue
+        out.append({"title": str(a.get("title") or "Proposed step"), "command": cmd,
+                    "why": str(a.get("why") or "—"), "how": str(a.get("how") or "—"),
+                    "root": bool(a.get("root")) or cmd.startswith("sudo") or " sudo " in cmd})
+    return out
+
+
 class Panel(Gtk.Window):
     def __init__(self):
         super().__init__()
@@ -189,6 +236,11 @@ class Panel(Gtk.Window):
         box.pack_start(self.scroll, True, True, 0)
         self.max_h = max_height()
 
+        self.card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.card_box.set_no_show_all(True)
+        box.pack_start(self.card_box, False, False, 0)
+        self.turn_start = 0
+
         self.status = label("", "dim")
         self.status.set_line_wrap(True)
         box.pack_start(self.status, False, False, 0)
@@ -208,7 +260,7 @@ class Panel(Gtk.Window):
         more.pack_start(button("Open Claude", lambda: self.jarvis("open", "claude")), False, False, 0)
         more.pack_start(button("Open OpenCode", lambda: self.jarvis("open", "opencode")), False, False, 0)
         box.pack_start(more, False, False, 0)
-        self.hint = label("Enter asks (read-only here) · Work on repo uses what you typed · Esc closes", "dim")
+        self.hint = label("Enter asks · proposed changes run only when you press Run · Esc closes", "dim")
         box.pack_start(self.hint, False, False, 0)
         self.add(box)
 
@@ -228,13 +280,26 @@ class Panel(Gtk.Window):
         q = self.entry.get_text().strip()
         if not q or self.proc:
             return
-        target = self.agent.get_active_id() or "claude"
-        self.last_target, self.session, self.answer = target, None, ""
+        self.last_target, self.session, self.answer = self.agent.get_active_id() or "claude", None, ""
+        self.start(q)
+
+    def start(self, prompt, follow_up=False):
+        """Run the agent once; a follow-up (an action's result) continues the same conversation."""
+        target = self.last_target
+        self.clear_card()
         if target == "claude":
-            cmd = ["claude", "-p", q, "--output-format", "stream-json", "--include-partial-messages", "--verbose",
-                   "--append-system-prompt", INLINE_NOTE, "--allowedTools", *READ_ONLY_TOOLS]
+            cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--include-partial-messages",
+                   "--verbose", "--append-system-prompt", INLINE_NOTE, "--add-dir", "/",
+                   "--allowedTools", *READ_ONLY_TOOLS, "--disallowedTools", *SECRET_READS]
+            if follow_up and self.session:
+                cmd += ["--resume", self.session]
+        elif follow_up:
+            cmd = ["opencode", "run", "--continue", "--model", target, prompt]
         else:
-            cmd = ["opencode", "run", "--model", target, f"{INLINE_NOTE}\n\nQuestion: {q}"]
+            cmd = ["opencode", "run", "--model", target, f"{INLINE_NOTE}\n\nQuestion: {prompt}"]
+        if follow_up:
+            self.answer += "\n\n---\n\n"
+        self.turn_start = len(self.answer)
         try:
             self.proc = subprocess.Popen(cmd, cwd=JDIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                          stdin=subprocess.DEVNULL, text=True, start_new_session=True)
@@ -246,8 +311,8 @@ class Panel(Gtk.Window):
         self.agent.set_sensitive(False)
         self.cont.hide()
         self.again.hide()
-        self.show_answer("")
-        self.set_status("Thinking…")
+        self.show_answer(self.answer)
+        self.set_status("Checking the result…" if follow_up else "Thinking…")
         reader = self.read_claude if target == "claude" else self.read_plain
         threading.Thread(target=reader, args=(self.proc,), daemon=True).start()
 
@@ -297,6 +362,7 @@ class Panel(Gtk.Window):
         return False
 
     def show_answer(self, md):
+        md = ACTION_RE.sub("", md).rstrip()  # action blocks become cards, not text
         self.view.set_markup(markdown_to_pango(md) if md else "")
         self.scroll.set_visible(bool(md))
         self.view.show()
@@ -316,14 +382,102 @@ class Panel(Gtk.Window):
         took = f"{time.time() - self.started:.0f} s"
         if rc == 0 or self.answer:
             if not self.status.get_style_context().has_class("bad"):
-                self.set_status(f"Done · {took}" + (" · read-only here; Continue in terminal to make changes"
-                                                    if self.answer else ""))
+                self.set_status(f"Done · {took}")
         else:
             msg = (err or "").strip().splitlines()[-1:] or [f"exit {rc}"]
             self.set_status(f"The agent stopped: {msg[0][:200]}", "bad")
         self.cont.set_visible(bool(self.session) or self.last_target != "claude")
         self.again.show()
+        actions = parse_actions(self.answer[self.turn_start:])
+        if actions:
+            self.show_card(actions[0])
+            if not self.status.get_style_context().has_class("bad"):
+                self.set_status(f"Done · {took} · nothing runs until you press Run")
         return False
+
+    # ---- action cards -------------------------------------------------------------------------------------------
+    def clear_card(self):
+        for c in self.card_box.get_children():
+            self.card_box.remove(c)
+        self.card_box.hide()
+
+    def show_card(self, a):
+        self.clear_card()
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        card.get_style_context().add_class("item")
+        card.pack_start(label(a["title"], "heading"), False, False, 0)
+        grid = Gtk.Grid(column_spacing=12, row_spacing=4)
+        for i, (k, v) in enumerate((("What", a["command"]), ("Why", a["why"]), ("How", a["how"]))):
+            grid.attach(label(k, "dim", yalign=0), 0, i, 1, 1)
+            val = label(v, selectable=True, xalign=0)
+            val.set_line_wrap(True)
+            val.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            val.set_hexpand(True)
+            if k == "What":
+                val.set_markup(f"<tt>{GLib.markup_escape_text(v)}</tt>")
+            grid.attach(val, 1, i, 1, 1)
+        card.pack_start(grid, False, False, 0)
+        notes = []
+        if a["root"]:
+            notes.append("Runs as root (passwordless sudo).")
+        if DANGER_RE.search(a["command"]):
+            notes.append("This can delete or overwrite data: check the command before you run it.")
+        if notes:
+            w = label(" ".join(notes), "warn" if not DANGER_RE.search(a["command"]) else "bad")
+            w.set_line_wrap(True)
+            card.pack_start(w, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        self.run_btn = button("Run", lambda: self.run_action(a), "primary")
+        self.skip_btn = button("Skip", lambda: self.skip_action(a))
+        row.pack_start(self.run_btn, False, False, 0)
+        row.pack_start(self.skip_btn, False, False, 0)
+        card.pack_start(row, False, False, 0)
+        self.card_out = label("", "dim", selectable=True, xalign=0)
+        self.card_out.set_line_wrap(True)
+        self.card_out.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.card_out.set_no_show_all(True)
+        card.pack_start(self.card_out, False, False, 0)
+        self.card_box.pack_start(card, False, False, 0)
+        card.show_all()        # card_out stays hidden (no_show_all) until there is output
+        self.card_box.show()   # show_all() does nothing on a no_show_all widget, so show it directly
+        self.resize(PANEL_W, 1)
+
+    def run_action(self, a):
+        self.run_btn.set_sensitive(False)
+        self.skip_btn.set_sensitive(False)
+        self.entry.set_sensitive(False)
+        self.set_status(f"Running: {a['title']}…")
+
+        def work():
+            try:
+                r = subprocess.run(["bash", "-c", a["command"]], capture_output=True, text=True,
+                                   timeout=RUN_TIMEOUT, stdin=subprocess.DEVNULL, cwd=os.path.expanduser("~"))
+                return r.returncode, (r.stdout + r.stderr)
+            except subprocess.TimeoutExpired as e:
+                out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+                return None, out + f"\n(stopped after {RUN_TIMEOUT} s)"
+            except OSError as e:
+                return None, str(e)
+
+        def done(res):
+            rc, out = res
+            out = (out or "").strip()
+            shown = out if len(out) <= 3000 else out[:1500] + "\n…\n" + out[-1500:]
+            self.card_out.set_markup("<tt>" + GLib.markup_escape_text(
+                f"exit {rc if rc is not None else '—'}" + (f"\n{shown}" if shown else "")) + "</tt>")
+            self.card_out.show()
+            self.answer += f"\n\n**Ran:** `{a['command']}` · exit {rc if rc is not None else 'none'}"
+            self.start(f"I pressed Run. Command: {a['command']}\nExit code: {rc}\nOutput:\n```\n{shown}\n```\n"
+                       "Check whether that worked. If more is needed, propose the next single step as an action "
+                       "card; otherwise say briefly that it's done.", follow_up=True)
+            return False
+
+        threading.Thread(target=lambda: GLib.idle_add(done, work()), daemon=True).start()
+
+    def skip_action(self, a):
+        self.answer += f"\n\n*Skipped:* {a['title']}"
+        self.start(f"I skipped that step ({a['title']}). Suggest another way, or stop if there isn't one.",
+                   follow_up=True)
 
     def stop(self):
         p, self.proc = self.proc, None
@@ -346,6 +500,7 @@ class Panel(Gtk.Window):
         self.entry.set_text("")
         self.entry.set_sensitive(True)
         self.answer, self.session = "", None
+        self.clear_card()
         self.show_answer("")
         self.set_status("")
         self.cont.hide()
