@@ -9,6 +9,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 from . import displays  # noqa: E402
+from .ui_theme import rgb, watch  # noqa: E402
 
 KEEP_SECONDS = 15
 CANVAS_H = 170
@@ -43,6 +44,7 @@ class DisplayEditor(Gtk.Box):
         self.canvas.connect("button-press-event", self.on_press)
         self.canvas.connect("motion-notify-event", self.on_motion)
         self.canvas.connect("button-release-event", self.on_release)
+        watch(self.canvas, self.canvas.queue_draw)  # recolour with the theme
         self.pack_start(self.canvas, False, False, 0)
         hint = Gtk.Label(label="Drag a screen to move it", xalign=0.5)
         hint.get_style_context().add_class("dim")
@@ -126,13 +128,13 @@ class DisplayEditor(Gtk.Box):
         for m in self.mons:
             x, y, w, h = ox + m.x * f, oy + m.y * f, m.lw * f, m.lh * f
             active = self.drag and self.drag[0] is m
-            cr.set_source_rgb(*((0.231, 0.259, 0.380) if active else (0.161, 0.180, 0.259)))
+            cr.set_source_rgb(*rgb("surface3" if active else "surface2"))
             cr.rectangle(x + 1, y + 1, w - 2, h - 2)
             cr.fill_preserve()
-            cr.set_source_rgb(*((0.478, 0.635, 0.969) if active else (0.337, 0.373, 0.537)))
+            cr.set_source_rgb(*rgb("accent" if active else "fg_dim"))
             cr.set_line_width(2)
             cr.stroke()
-            cr.set_source_rgb(0.753, 0.792, 0.961)
+            cr.set_source_rgb(*rgb("fg_bright"))
             cr.select_font_face("JetBrains Mono")
             cr.set_font_size(12)
             for i, text in enumerate((m.name, f"{m.scale:.2f}".rstrip("0").rstrip(".") + "×")):

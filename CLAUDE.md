@@ -17,21 +17,25 @@ ML4W-style **installer** (`install.sh`) that adds a Hyprland (uwsm) desktop on t
 5. **No secrets in git.** Credentials (Chromium OAuth, restic repo/password) come from chezmoi `promptStringOnce` in `dotfiles/.chezmoi.toml.tmpl` and render into `private_` (0600) files.
 6. **Timeshift = whole system + /home, mode auto-detected** in `fw-timeshift-setup`: btrfs mode iff `/` is subvol `@`; otherwise rsync (Fedora's default `root`/`home` names). Scheduled by `fw-timeshift.timer` (`timeshift --check`), not cron.
 7. Hardware is AMD. Do not add Intel-specific packages/params.
-8. Visual style: clean/minimal, Tokyo Night, flat borders, thin bar. **Keys stay simple and conventional** — do not port Omarchy's (or any distro's) keymap. Omarchy-*style* bar menus are OK (user decision): bar icons open fuzzel menus (`fw-control-center [section]`, `fw-system-menu`), not big GUI apps; GUI tools stay on right/middle-click.
+8. Visual style: clean/minimal, Tokyo Night by default or colours from the wallpaper (matugen, `fw13.theme`), flat borders, thin bar. **Keys stay simple and conventional** — do not port Omarchy's (or any distro's) keymap. Omarchy-*style* bar menus are OK (user decision): bar icons open fuzzel menus (`fw-control-center [section]`, `fw-system-menu`), not big GUI apps; GUI tools stay on right/middle-click.
 
 ## Layout
 
 ```
 install.sh                 preflight → repos → packages → system files → login/power → fingerprint/services → user phase → report
                            flags: --yes --ci --system-only --user-only; env: HYPR_COPR, REPO_URL, CHECKOUT
-packages/NN-*.txt          one package per line, '#' comments on their own line only (pkgs() splits on whitespace); 15-login, 61-power conditional
+packages/NN-*.txt          one package per line, '#' comments on their own line only (pkgs() splits on whitespace); 15-login, 61-power conditional; matugen is installed separately as `'matugen >= 4'` (needs the COPR)
 repos/*.repo               vendor repos (vscode, mise)
 system/usr/local/bin/      fw-timeshift-setup
 system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_local/lib/fw13/       shared Python library → ~/.local/lib/fw13 (scripts sys.path.insert ~/.local/lib): hypr (Lua hyprctl helpers),
-                           displays, power, sound, net (nmcli; passwd-file, never argv), bt (org.bluez via Gio), hyprsettings (settings.lua: verify-config in a temp copy, then write + hl.config live), idle (owns hypridle.conf), system, store (~/.config/fw13/settings.json), ui_theme (flat CSS), ui_display, pages/*
+                           displays, power, sound, net (nmcli; passwd-file, never argv), bt (org.bluez via Gio), hyprsettings (settings.lua: verify-config in a temp copy, then write + hl.config live), idle (owns hypridle.conf), system, store (~/.config/fw13/settings.json), ui_theme (flat CSS), ui_display, pages/*,
+                           theme (palette: matugen from the wallpaper or TOKYO_NIGHT → generated files in ~/.config/fw13/theme/ + live reload)
+                           Colour rule: colour literals live only in theme.py TOKYO_NIGHT, the create_ seeds of ~/.config/fw13/theme/ and hypr/theme.lua's
+                           documented fallback (used only if the generated hypr.lua is missing or broken);
+                           base configs (hypr, hyprlock, waybar, fuzzel, mako, kitty, ui_*) include the generated files, never hard-code hex
   dot_config/hypr/*.lua    hyprland.lua require()s monitors/displays/autostart/looknfeel(+theme)/input/windows/bindings/settings (fw-settings-generated)/local (Lua config; hyprlock/hypridle/hyprpaper keep their own .conf)
   dot_local/bin/executable_fw-*   capture, record, nightlight, notify, clipboard (SUPER+V: cliphist pick → paste via hl.dsp.send_shortcut; key must be lowercase `v`), system-menu, control-center, power-panel, display-panel (layer-shell popup around fw13.ui_display), settings (Settings app: Gtk.Application, single instance, `fw-settings [page] [--toggle]`; pages in lib/fw13/pages), workspaces (Python daemon: per-screen ranges eDP 1–9, others 11–19…; SUPER+N goes through it; login layout), jarvis (agent launcher; briefing in dot_local/share/jarvis/AGENTS.md), crash-watch (user service; journal coredump/unit-failed → notify → Diagnose), opencode (Ollama server list → generated ~/.config/fw-opencode/opencode.json via OPENCODE_CONFIG), claude-limits (statusLine rate_limits → bar; settings via dot_claude/modify_settings.json), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
 .github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
@@ -44,6 +48,7 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
 |---|---|
 | Fedora | everything not listed below (swayosd is not packaged for Fedora 44 → dropped; volume/brightness keys use wpctl/brightnessctl) |
 | COPR `lionheartp/Hyprland` | hyprland, hyprlock, hypridle, hyprpaper, hyprpolkitagent, hyprpicker, hyprsunset, hyprland-guiutils, xdg-desktop-portal-hyprland. Hyprland was **retired from Fedora in F43** and the COPR only builds F44+ (hence the ≥44 preflight); swap via `HYPR_COPR=… ./install.sh` (`HYPR_COPR=` = Fedora only) |
+| COPR `lionheartp/Hyprland` (theme) | matugen 4.2.0 (wallpaper → Material You palette). Not from Fedora: F44 ships 3.1.0, which rejects the engine's `--prefer`/`-t scheme-*` flags. Installed as `'matugen >= 4'` only when `HYPR_COPR` is set (a COPR without 4.x fails loudly); otherwise the theme stays Tokyo Night |
 | Fedora (AI) | ollama (system service, local models for OpenCode) |
 | Fedora (dev) | podman, distrobox, gh (GitHub CLI) |
 | RPM Fusion | steam, steam-devices, ffmpeg, gstreamer1-plugins-bad-freeworld |

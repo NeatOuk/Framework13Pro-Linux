@@ -117,6 +117,14 @@ system_phase() {
   $DNF install "${main[@]}"
   $DNF install "${gaming[@]}"
   $DNF install --allowerasing "${codecs[@]}"
+  # matugen (wallpaper → Material You colours): fw13.theme needs 4.x (--prefer, -t scheme-*, colors[role][mode]).
+  # Fedora 44 ships 3.1.0, which rejects those flags, so the version is pinned: a COPR without matugen 4
+  # fails here loudly instead of quietly installing Fedora's. lionheartp/Hyprland has 4.2.0.
+  if [[ -n "$HYPR_COPR" ]]; then
+    $DNF install 'matugen >= 4'
+  else
+    warn "HYPR_COPR is empty: no matugen 4 (Fedora's 3.1.0 is too old), so the theme stays Tokyo Night"
+  fi
 
   say "Citadel (outbound firewall) + citadel-helper — built from source as RPMs"
   local rpms=()

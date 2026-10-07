@@ -1,4 +1,5 @@
-"""Appearance: wallpaper, window gaps and border size (rounding stays 0 — house style).
+"""Appearance: theme colours (wallpaper palette via matugen, or Tokyo Night), wallpaper, window gaps and border
+size (rounding stays 0 — house style).
 
 HyprPage is shared with Input: both write ~/.config/hypr/settings.lua through fw13.hyprsettings.
 """
@@ -12,7 +13,8 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
 from .. import hyprsettings as hs  # noqa: E402
-from ..ui_theme import button  # noqa: E402
+from .. import theme  # noqa: E402
+from ..ui_theme import button, current, rgb, sync, watch  # noqa: E402
 from .common import Page, label  # noqa: E402
 
 
@@ -119,14 +121,116 @@ class HyprPage(Page):
         return self.row(text, box, hint=hint)
 
 
+MODES = (("dark", "Dark"), ("light", "Light"))
+STYLES = (("scheme-tonal-spot", "Tonal spot (default)"), ("scheme-content", "Content"),
+          ("scheme-expressive", "Expressive"), ("scheme-vibrant", "Vibrant"), ("scheme-neutral", "Neutral"),
+          ("scheme-monochrome", "Monochrome"), ("scheme-fidelity", "Fidelity"), ("scheme-rainbow", "Rainbow"),
+          ("scheme-fruit-salad", "Fruit salad"))
+SWATCHES = (("bg", "Background"), ("surface", "Surface"), ("accent", "Accent"), ("accent2", "Second accent"),
+            ("ok", "Good"), ("warn", "Warning"), ("bad", "Error"), ("fg", "Text"))
+
+
+def swatches():
+    """A row of small squares showing the palette in use; redraws itself when the theme changes."""
+    box = Gtk.Box(spacing=6)
+    for role, name in SWATCHES:
+        area = Gtk.DrawingArea()
+        area.set_size_request(26, 26)
+        area.set_tooltip_text(f"{name}  {current()[role]}")
+
+        def draw(w, cr, role=role):
+            a = w.get_allocation()
+            cr.set_source_rgb(*rgb("muted"))  # outline, so bg stays visible on the page background
+            cr.rectangle(0, 0, a.width, a.height)
+            cr.fill()
+            cr.set_source_rgb(*rgb(role))
+            cr.rectangle(1, 1, a.width - 2, a.height - 2)
+            cr.fill()
+
+        def recolour(w=area, role=role, name=name):
+            w.set_tooltip_text(f"{name}  {current()[role]}")
+            w.queue_draw()
+        area.connect("draw", draw)
+        watch(area, recolour)
+        box.pack_start(area, False, False, 0)
+    return box
+
+
+def combo(options, active, cb):
+    c = Gtk.ComboBoxText()
+    for key, text in options:
+        c.append(key, text)
+    c.set_active_id(active)
+    c.connect("changed", lambda w: cb(w.get_active_id()))
+    return c
+
+
 class AppearancePage(HyprPage):
     def __init__(self):
         super().__init__("Appearance")
         self.confirm = False  # "Reset to defaults" clicked once: show Cancel / Reset
+        self.theming = False  # a theme change is running (matugen takes ~1 s): controls are insensitive
+        self.queued = None    # (source, mode, type) asked for while one was running: run it next
         self.refresh()
+
+    def theme_section(self):
+        self.heading("Theme")
+        s = theme.state()
+        have_wall = hs.wallpaper() is not None
+        follow = s["source"] == "wallpaper"
+        box = Gtk.Box(spacing=16)
+        wall = Gtk.RadioButton.new_with_label(None, "From wallpaper")
+        tokyo = Gtk.RadioButton.new_with_label_from_widget(wall, "Tokyo Night")
+        (wall if follow else tokyo).set_active(True)
+        wall.set_sensitive(have_wall or follow)  # if it already follows, keep it selectable
+        wall.connect("toggled", lambda b: b.get_active() and self.set_theme("wallpaper"))
+        tokyo.connect("toggled", lambda b: b.get_active() and self.set_theme("tokyo-night"))
+        box.pack_start(wall, False, False, 0)
+        box.pack_start(tokyo, False, False, 0)
+        hint = ("Colours for the bar, menus, notifications, terminal, lock screen and borders" if have_wall
+                else "Set a wallpaper below to take the colours from it")
+        controls = [self.row("Colours", box, hint=hint)]
+        if follow:
+            mode = combo(MODES, s["mode"], lambda v: self.set_theme("wallpaper", mode=v))
+            style = combo(STYLES, s["type"], lambda v: self.set_theme("wallpaper", scheme_type=v))
+            controls.append(self.row("Mode", mode))
+            controls.append(self.row("Style", style, hint="How matugen builds the palette from the image"))
+        self.row("Palette", swatches(), hint="Hover a colour for its name")
+        for w in controls:
+            w.set_sensitive(not self.theming)
+
+    def set_theme(self, source, mode=None, scheme_type=None):
+        if self.theming:  # one at a time: two set_source() calls would race on the store and files
+            self.queued = (source, mode, scheme_type)
+            return
+        self.theming = True
+        self.show_status("Reading colours from the wallpaper…" if source == "wallpaper" else "Applying theme…",
+                         "dim")
+        background(lambda: theme.set_source(source, mode=mode, scheme_type=scheme_type), self.theme_set)
+        GLib.idle_add(self.refresh_if_open)  # grey out the controls (not from inside their own signal)
+
+    def theme_set(self, err):
+        self.theming = False
+        sync()  # don't wait for the file monitor
+        if self.queued:
+            nxt, self.queued = self.queued, None
+            if nxt == ("reset",):
+                self.reset()
+            else:
+                self.set_theme(*nxt)
+            return False
+        self.show_status(err)
+        self.refresh_if_open()
+        return False
+
+    def refresh_if_open(self):
+        if not self.closed:
+            self.refresh()
+        return False
 
     def refresh(self):
         self.clear()
+        self.theme_section()
         self.heading("Wallpaper")
         path = hs.wallpaper()
         if path:
@@ -149,12 +253,13 @@ class AppearancePage(HyprPage):
             box.pack_start(button("Cancel", lambda: self.ask_reset(False)), False, False, 0)
             box.pack_start(button("Reset", self.reset, "danger"), False, False, 0)
             self.row("Reset every Appearance and Input setting?", box,
-                     hint="Touchpad, keyboard and layouts too; Hyprland reloads")
+                     hint="Theme back to Tokyo Night; touchpad, keyboard and layouts too; Hyprland reloads")
         else:
             reset = button("Reset to defaults", lambda: self.ask_reset(True), "danger")
             reset.set_halign(Gtk.Align.START)
             self.row("Back to the shipped look", reset,
-                     hint="Clears every Appearance and Input change (touchpad, keyboard too)")
+                     hint="Tokyo Night and every Appearance and Input change (touchpad, keyboard too); "
+                          "the wallpaper is kept")
         self.show_all()
 
     def choose(self):
@@ -176,6 +281,9 @@ class AppearancePage(HyprPage):
 
     def wallpaper_set(self, err):
         self.show_status(err)
+        if not err and theme.state()["source"] == "wallpaper":  # new image: new colours
+            self.set_theme("wallpaper")
+            return False
         if not self.closed:
             self.refresh()
         return False
@@ -191,9 +299,26 @@ class AppearancePage(HyprPage):
             GLib.source_remove(self.timer)
             self.timer = None
         self.pending = {}
-        background(hs.reset, self.written_reset)
+        self.queued = None  # the reset wins over a theme change asked for before it
+        if self.theming:  # a theme change is running: reset once it is done (set_source must not race)
+            self.queued = ("reset",)
+            return
+        self.theming = True
+
+        def work():
+            errs = [e for e in (hs.reset(), theme.set_source("tokyo-night", mode="dark",
+                                                             scheme_type=theme.DEFAULT_TYPE)) if e]
+            return "; ".join(errs) or None
+
+        background(work, self.written_reset)
 
     def written_reset(self, err):
+        self.theming = False
+        sync()
+        nxt, self.queued = self.queued, None
+        if nxt and not err:  # a theme change asked for while the reset ran
+            self.set_theme(*nxt)
+            return False
         self.show_status(err)
         if not self.closed:
             self.refresh()

@@ -260,9 +260,10 @@ def set_wallpaper(src):
             pb = GdkPixbuf.Pixbuf.new_from_file(src)
             pb = pb.apply_embedded_orientation() or pb
             if pb.get_has_alpha():  # JPEG has no alpha: flatten onto the theme background
+                from .theme import palette
                 w, h = pb.get_width(), pb.get_height()
                 flat = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, w, h)
-                flat.fill(0x1a1b26ff)
+                flat.fill(int(palette()["bg"].lstrip("#")[:6] + "ff", 16))
                 pb.composite(flat, 0, 0, w, h, 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
                 pb = flat
             pb.savev(tmp, "jpeg", ["quality"], ["95"])
