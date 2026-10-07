@@ -10,6 +10,10 @@ monitors (sorted by connector name) 11–19, 21–29, … Each bar shows its own
                          (kitty on the laptop's 1, Chromium on the monitor's 1), and re-binds on hotplug —
                          an unplugged monitor's workspaces move to the laptop and go back when it returns.
   fw-workspaces layout   just the login layout (testing)
+  fw-workspaces dot N    waybar: JSON for workspace N's dot on this bar's screen (WAYBAR_OUTPUT_NAME)
+  fw-workspaces click N  waybar: switch the screen under the pointer to its workspace N
+                         (waybar's own hyprland/workspaces click sends a hyprlang dispatch, which the Lua
+                         config rejects - fixed in waybar git, not in a release yet)
 """
 import json
 import os
@@ -19,7 +23,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib"))
-from fw13.hypr import dispatch, hj, lua, q  # noqa: E402  (Lua-mode hyprctl helpers, shared)
+from fw13.hypr import dispatch, hj, hypr, lua, q  # noqa: E402  (Lua-mode hyprctl helpers, shared)
 
 PERSISTENT = 5  # circles shown per screen
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
@@ -56,6 +60,56 @@ def go(n, move=False):
     target = bases(mons).get(m["name"], 0) + n
     dispatch(f"hl.dsp.window.move({{ workspace = {q(target)} }})" if move
              else f"hl.dsp.focus({{ workspace = {q(target)} }})")
+
+
+# --- bar dots (custom/ws1..5 in waybar; refreshed with SIGRTMIN+DOTS_SIGNAL) -------------------
+DOTS_SIGNAL = 10  # waybar "signal": 10 on the custom/wsN modules
+DOT_EVENTS = ("workspace>>", "workspacev2>>", "focusedmon>>", "createworkspace>>", "destroyworkspace>>",
+              "moveworkspace>>", "openwindow>>", "closewindow>>", "movewindow>>", "monitoradded>>",
+              "monitorremoved>>", "configreloaded>>")
+
+
+def dot(n):
+    mons = hj("monitors")
+    name = os.environ.get("WAYBAR_OUTPUT_NAME")
+    m = next((m for m in mons if m["name"] == name), None) or focused(mons)
+    if not m:
+        print(json.dumps({"text": ""}))
+        return
+    wid = bases(mons).get(m["name"], 0) + n
+    windows = {w["id"]: w["windows"] for w in hj("workspaces")}
+    if m["activeWorkspace"]["id"] == wid:
+        icon, cls = "\u25cf", "active"      # ●
+    elif windows.get(wid):
+        icon, cls = "\u25c9", "occupied"    # ◉
+    else:
+        icon, cls = "\u25cb", "empty"       # ○
+    print(json.dumps({"text": icon, "class": cls, "tooltip": f"Workspace {n}"}))
+
+
+def click(n):
+    """Switch the screen the pointer is on (the bar that was clicked) to its workspace n."""
+    mons = hj("monitors")
+    try:
+        cur = json.loads(hypr("-j", "cursorpos"))
+    except ValueError:
+        cur = None
+    m = None
+    if cur:
+        for mon in mons:
+            w, h = mon["width"] / mon["scale"], mon["height"] / mon["scale"]
+            if mon["x"] <= cur["x"] < mon["x"] + w and mon["y"] <= cur["y"] < mon["y"] + h:
+                m = mon
+    m = m or focused(mons)
+    if not m:
+        return
+    target = bases(mons).get(m["name"], 0) + n
+    lua(f"hl.dispatch(hl.dsp.focus({{ monitor = {q(m['name'])} }}))",
+        f"hl.dispatch(hl.dsp.focus({{ workspace = {q(target)} }}))")
+
+
+def refresh_dots():
+    subprocess.run(["pkill", f"-RTMIN+{DOTS_SIGNAL}", "-x", "waybar"])
 
 
 # --- ranges ↔ screens ---------------------------------------------------------------------------
@@ -148,17 +202,22 @@ def daemon():
     if not os.path.exists(LAYOUT_DONE):
         open(LAYOUT_DONE, "w").close()
         layout()
+    refresh_dots()
     for ev in events():
         # hotplug, or a config reload (it drops the rules set with hyprctl eval)
         if ev.startswith(("monitoradded>>", "monitorremoved>>", "configreloaded>>")):
             time.sleep(0.5)  # let Hyprland finish moving things around
             base_of = setup(base_of)
+        if ev.startswith(DOT_EVENTS):
+            refresh_dots()
 
 
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd in ("go", "move") and len(sys.argv) == 3 and sys.argv[2].isdigit():
         go(int(sys.argv[2]), move=cmd == "move")
+    elif cmd in ("dot", "click") and len(sys.argv) == 3 and sys.argv[2].isdigit():
+        (dot if cmd == "dot" else click)(int(sys.argv[2]))
     elif cmd == "daemon":
         daemon()
     elif cmd == "layout":
