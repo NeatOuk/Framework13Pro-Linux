@@ -58,7 +58,9 @@ jobs:
           for b in Hyprland hyprlock hypridle waybar fuzzel kitty uwsm chromium-browser code steam timeshift restic mise; do
             if command -v "$b" >/dev/null; then echo "ok  $b"; else echo "MISSING $b"; exit 1; fi
           done
-          test -f "$HOME/.config/hypr/hyprland.conf"
+          test -f "$HOME/.config/hypr/hyprland.lua"
+          Hyprland --i-am-really-stupid --verify-config -c "$HOME/.config/hypr/hyprland.lua" 2>&1 | tee verify.log | tail -3  # CI runs as root
+          grep -qx 'config ok' verify.log   # Lua config (hyprlang .conf is deprecated since 0.55)
           for t in chezmoi starship node; do mise which "$t"; done
           "$HOME/.local/bin/claude" --version  # runs the binary, not just finds it
       - name: Report

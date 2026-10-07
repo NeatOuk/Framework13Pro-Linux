@@ -79,7 +79,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 |---|---|
 | Everything (packages, dotfiles, tools) | Re-run the one-liner. It pulls the latest repo into `~/.local/share/fw13-hypr` and only adds what's missing (if you cloned the repo yourself: `git pull && ./install.sh`) |
 | Fedora + Hyprland packages | `sudo dnf upgrade` |
-| Dotfiles only | `chezmoi update` (your `~/.config/hypr/local.conf` is never overwritten) |
+| Dotfiles only | `chezmoi update` (your `~/.config/hypr/local.lua` is never overwritten) |
 | Claude Code | Updates itself; `claude update` to force it |
 | BIOS / firmware | `fwupdmgr refresh && fwupdmgr update` |
 
@@ -89,6 +89,20 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
   - **It catches** renamed or missing packages, repo problems and script errors, and checks that the key programs and dotfiles ended up in place.
   - **Results:** the install report appears in the job summary.
 - **Hardware only:** these can only be checked on the laptop itself: the Hyprland session, Wi-Fi/Bluetooth, fingerprint, suspend, VA-API video decode, the ambient light sensor, and Steam with gamescope.
+
+## Hyprland config (Lua)
+
+Hyprland's config is **Lua** (`~/.config/hypr/hyprland.lua`, which `require()`s `monitors`, `displays`, `looknfeel`, `input`, `windows`, `bindings`, …). The old `.conf` (hyprlang) format is deprecated since Hyprland 0.55 and due to be dropped, so this repo moved early.
+
+- **Your own tweaks** go in `~/.config/hypr/local.lua` (Lua, e.g. `hl.config({ input = { kb_layout = "us,de" } })`). A leftover `local.conf` is no longer read; the installer warns if it had settings.
+- **Saved display layouts** from the display panel live in `~/.config/hypr/displays.lua`.
+- **Check a config without starting Hyprland:** `Hyprland --verify-config -c ~/.config/hypr/hyprland.lua` (CI runs this too). It catches syntax errors and unknown settings, but not wrong dispatcher arguments.
+- **Scripts talk Lua too:** `hyprctl dispatch 'hl.dsp.focus({ workspace = "3" })'`, and `hyprctl eval '<lua>'` replaces `hyprctl keyword`.
+- **Log in with "Hyprland (uwsm)"**, not plain "Hyprland": without uwsm the desktop portal (file pickers, screen sharing) and other session services don't start.
+
+**Notes / later:**
+- Per-screen workspaces are still a Python helper (`fw-workspaces`: a daemon plus one process per SUPER+N). With Lua they could live in the config itself: SUPER+N as a Lua function using `hl.get_active_monitor()`, hotplug via `hl.on(...)` monitor events, the login layout via exec rules. That means no background process and faster keys; it was left as a straight port for now to keep the migration small.
+- In Hyprland 0.56.2, `hyprctl binds` reports the SUPER+drag binds without the `mouse` flag, but dragging works.
 
 ## Layout
 

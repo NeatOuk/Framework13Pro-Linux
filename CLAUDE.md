@@ -30,8 +30,8 @@ system/usr/local/bin/      fw-timeshift-setup
 system/etc/systemd/system/ fw-timeshift.{service,timer}
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
-  dot_config/hypr/*.conf   hyprland.conf sources monitors/theme/autostart/looknfeel/input/windows/bindings/local
-  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, clipboard (SUPER+V: cliphist pick → paste via hyprctl sendshortcut; key must be lowercase `v`), system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; saves hypr/displays.conf), workspaces (Python daemon: per-screen ranges eDP 1–9, others 11–19…; SUPER+N goes through it; login layout), jarvis (agent launcher; briefing in dot_local/share/jarvis/AGENTS.md), crash-watch (user service; journal coredump/unit-failed → notify → Diagnose), opencode (Ollama server list → generated ~/.config/fw-opencode/opencode.json via OPENCODE_CONFIG), claude-limits (statusLine rate_limits → bar; settings via dot_claude/modify_settings.json), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
+  dot_config/hypr/*.lua    hyprland.lua require()s monitors/displays/autostart/looknfeel(+theme)/input/windows/bindings/local (Lua config; hyprlock/hypridle/hyprpaper keep their own .conf)
+  dot_local/bin/executable_fw-*   capture, record, nightlight, notify, clipboard (SUPER+V: cliphist pick → paste via hl.dsp.send_shortcut; key must be lowercase `v`), system-menu, control-center, power-panel, display-panel (Python/GTK3 layer-shell; hyprctl eval hl.monitor, saves hypr/displays.lua), workspaces (Python daemon: per-screen ranges eDP 1–9, others 11–19…; SUPER+N goes through it; login layout), jarvis (agent launcher; briefing in dot_local/share/jarvis/AGENTS.md), crash-watch (user service; journal coredump/unit-failed → notify → Diagnose), opencode (Ollama server list → generated ~/.config/fw-opencode/opencode.json via OPENCODE_CONFIG), claude-limits (statusLine rate_limits → bar; settings via dot_claude/modify_settings.json), menu-anchor (bar menus open below the clicked icon via FW_BAR=1)
 .github/workflows/test.yml lint (shellcheck + config syntax) → install (./install.sh --ci in fedora:44, weekly cron too)
                            → screenshot (experimental, continue-on-error: vkms + .github/ci-screenshot.sh, uploads shot/)
 ```
@@ -65,12 +65,15 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 
 ## Conventions
 
-- **Hyprland ≥ 0.53 syntax**: `windowrule = match:class ^(x)$, float on`; gestures `gesture = 3, horizontal, workspace`. No `windowrulev2`.
+- **Hyprland config is Lua** (hyprlang `.conf` deprecated since 0.55, dropped soon). API for the installed version: `/usr/share/hypr/stubs/hl.meta.lua`; example: `/usr/share/hypr/hyprland.lua`. `hl.bind("SUPER + X", hl.dsp.…, { repeating/locked/mouse = true })`, `hl.window_rule({ name, match = { class = … }, float = true })`, `hl.on("hyprland.start", …)` for autostart.
+- **hyprctl in Lua mode**: `hyprctl dispatch '<lua dispatcher>'` (old `dispatch workspace 2` → "Invalid dispatcher"); `hyprctl eval '<lua>'` replaces `keyword`/`--batch`. Quote Lua strings from Python with `json.dumps`. The config manager is chosen at Hyprland start: switching .conf↔.lua needs a re-login, not `hyprctl reload`.
+- `Hyprland --verify-config -c <hyprland.lua>` checks syntax + unknown keys (not dispatcher args — test those, see below).
+- **Live tests never act on the active window** (it's the user's terminal): always pass `window = "address:0x…"` for a verified throwaway window, and never selector-less close/move/scratchpad.
 - Launch GUI apps through uwsm: `uwsm app -- <cmd>`; fuzzel uses `--launch-prefix="uwsm app -- "`.
 - Session env goes in `dotfiles/dot_config/environment.d/` (read by systemd --user), not Hyprland `env =`.
 - Icons: **Font Awesome 6 Free/Brands only** (no Nerd Font codepoints ≥ U+F0000). Fonts: JetBrains Mono, Noto (incl. Khmer).
 - Notifications from scripts: `fw-notify "title" "body"` (gdbus), not `notify-send`.
-- chezmoi naming: `dot_`, `private_`, `executable_`, `create_` (create-once, e.g. `hypr/local.conf`, `fcitx5/profile`), `modify_` (keeps distro `.bashrc`), `run_onchange_after_`. `~/.config` has exactly one source dir (`dot_config/`) — put private subdirs under it as `private_<name>`.
+- chezmoi naming: `dot_`, `private_`, `executable_`, `create_` (create-once, e.g. `hypr/local.lua`, `hypr/displays.lua`, `fcitx5/profile`), `modify_` (keeps distro `.bashrc`), `run_onchange_after_`. `~/.config` has exactly one source dir (`dot_config/`) — put private subdirs under it as `private_<name>`.
 - Prompt strings in `.chezmoi.toml.tmpl` must not contain commas (breaks `--promptString`), and are duplicated verbatim in `install.sh`'s CI `--promptString` args — change both together.
 - Secret-dependent files are skipped via `dotfiles/.chezmoiignore` when their prompt was left blank (Chromium OAuth env, restic env + timer). New secret-backed files need a matching ignore rule.
 - Outside `--ci`, the user phase runs `chezmoi init --apply "$REPO_URL"` then `chezmoi update` (so re-runs pull new dotfiles) — it applies the **pushed** repo, not the local tree. Test local dotfile edits with the temp-HOME dry-run in Commands.
@@ -79,7 +82,7 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 ## Verification before declaring done
 
 - `bash -n` on every script; JSON-parse `waybar/config.jsonc` (strip `//` comments) and TOML-parse mise/starship — the python snippet in the CI `lint` job does both.
-- Duplicate-keybind check on `hypr/bindings.conf` (ALT+TAB pairs are intentional elsewhere; none expected now).
+- `Hyprland --verify-config` on the rendered `hyprland.lua`; duplicate-keybind check via `hyprctl -j binds` (70 binds today).
 - chezmoi dry-run into a temp HOME, both with secrets blank and filled.
 - CI green on fedora:44; read the install report in the job summary (added count, size, top 25, Hypr provenance).
 - Hardware-only checks (cannot be done in CI/VM): MT7925 Wi-Fi/BT, VA-API (`vainfo` via distrobox), fingerprint, suspend/resume, tuned-ppd profiles, ambient light sensor, Steam + gamescope.

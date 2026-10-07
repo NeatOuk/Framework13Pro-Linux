@@ -39,7 +39,7 @@ HYPRLAND_INSTANCE_SIGNATURE="$(basename "$(dirname "${sigs[0]}")")"
 export HYPRLAND_INSTANCE_SIGNATURE
 [[ -n ${hyprctl_headless:-} ]] && hyprctl output create headless
 mapfile -t outputs < <(hyprctl monitors | awk '/^Monitor/{print $2}')
-for o in "${outputs[@]}"; do hyprctl keyword monitor "$o,1920x1080@60,auto,1"; done
+for o in "${outputs[@]}"; do hyprctl eval "hl.monitor({ output = \"$o\", mode = \"1920x1080@60\", position = \"auto\", scale = 1 })"; done
 sleep 2  # let the mode change settle before clients bind outputs
 socks=("$XDG_RUNTIME_DIR"/wayland-[0-9])  # skip the .lock file
 export WAYLAND_DISPLAY="${socks[0]##*/}"

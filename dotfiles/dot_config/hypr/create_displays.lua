@@ -1,0 +1,2 @@
+-- Written by fw-display-panel (bar display icon → Apply → Keep).
+-- One line per monitor, matched by description. Delete a line to return it to the default.

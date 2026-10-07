@@ -1,0 +1,2 @@
+-- Machine-local Hyprland overrides in Lua (created once, never overwritten by chezmoi).
+-- e.g.  hl.config({ input = { kb_layout = "us,de" } })

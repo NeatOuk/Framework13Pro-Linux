@@ -2,12 +2,13 @@
 """Display panel: laptop brightness slider, drag-to-arrange monitors, per-monitor refresh rate and scale.
 
 Bar display icon (FW_BAR=1 → opens below the icon, a second click closes it); also
-fw-control-center → Display. Apply uses `hyprctl keyword monitor`, then asks to keep the change
-(reverts after 15 s). Keep saves ~/.config/hypr/displays.conf (sourced by hyprland.conf), keyed by
+fw-control-center → Display. Apply uses `hyprctl eval 'hl.monitor(...)'`, then asks to keep the change
+(reverts after 15 s). Keep saves ~/.config/hypr/displays.lua (required by hyprland.lua), keyed by
 monitor description so a monitor keeps its place whatever port or dock it's plugged into.
 GTK3 + gtk-layer-shell (python3-gobject, gtk-layer-shell); brightness via brightnessctl.
 """
 import json
+import re
 import os
 import signal
 import subprocess
@@ -24,7 +25,7 @@ PANEL_W = 520
 CANVAS_H = 170
 KEEP_SECONDS = 15
 PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fw-display-panel.pid")
-SAVED = os.path.expanduser("~/.config/hypr/displays.conf")
+SAVED = os.path.expanduser("~/.config/hypr/displays.lua")
 SCALES = [1, 1.2, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 1.8, 2, 2.4, 2.5, 3]
 
 CSS = b"""
@@ -91,8 +92,11 @@ class Mon:
         return sorted(ok)
 
     def rule(self):
-        r = f"desc:{self.desc}, {self.w}x{self.h}@{self.rr:.2f}, {self.x}x{self.y}, {self.scale:.6g}"
-        return r + (f", transform, {self.transform}" if self.transform else "")
+        """One hl.monitor() call (Lua config); also what displays.lua stores, one per line."""
+        q = json.dumps  # a JSON string is a valid Lua string literal
+        r = (f"hl.monitor({{ output = {q('desc:' + self.desc)}, mode = {q(f'{self.w}x{self.h}@{self.rr:.2f}')}, "
+             f"position = {q(f'{self.x}x{self.y}')}, scale = {self.scale:.6g}")
+        return r + (f", transform = {self.transform} }})" if self.transform else " })")
 
     def snapshot(self):
         return (self.x, self.y, self.scale, self.rr)
@@ -145,8 +149,7 @@ def normalise(mons):
 
 
 def apply(mons):
-    batch = " ; ".join(f"keyword monitor {m.rule()}" for m in mons)
-    return all(line.strip() == "ok" for line in sh("hyprctl", "--batch", batch).split("\n") if line.strip())
+    return sh("hyprctl", "eval", "\n".join(m.rule() for m in mons)).strip() == "ok"
 
 
 def save(mons):
@@ -156,16 +159,16 @@ def save(mons):
     try:
         for line in open(SAVED):
             s = line.strip()
-            if s.startswith("monitor") and "desc:" in s:
-                d = s.split("desc:", 1)[1].split(",", 1)[0].strip()
-                if d not in descs:
+            d = re.search(r'output = "desc:((?:[^"\\]|\\.)*)"', s) if s.startswith("hl.monitor(") else None
+            if d:
+                if json.loads(f'"{d.group(1)}"') not in descs:
                     kept.append(s)
     except OSError:
         pass
     with open(SAVED, "w") as f:
-        f.write("# Written by fw-display-panel (bar display icon → Apply → Keep).\n"
-                "# One line per monitor, matched by description. Delete a line to return it to the default.\n")
-        for line in kept + [f"monitor = {m.rule()}" for m in mons]:
+        f.write("-- Written by fw-display-panel (bar display icon → Apply → Keep).\n"
+                "-- One line per monitor, matched by description. Delete a line to return it to the default.\n")
+        for line in kept + [m.rule() for m in mons]:
             f.write(line + "\n")
 
 

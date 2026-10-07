@@ -28,6 +28,19 @@ def hypr(*args):
     return subprocess.run(["hyprctl", *args], capture_output=True, text=True).stdout
 
 
+# Hyprland runs a Lua config: dispatchers and rules are Lua expressions, not the old hyprlang strings.
+def q(v):
+    return json.dumps(str(v))  # a JSON string is a valid Lua string literal
+
+
+def dispatch(expr):
+    return hypr("dispatch", expr)
+
+
+def lua(*statements):
+    return hypr("eval", "\n".join(statements))
+
+
 def hj(what):
     try:
         return json.loads(hypr("-j", what) or "[]")
@@ -62,7 +75,8 @@ def go(n, move=False):
     if not m:
         return
     target = bases(mons).get(m["name"], 0) + n
-    hypr("dispatch", "movetoworkspace" if move else "workspace", str(target))
+    dispatch(f"hl.dsp.window.move({{ workspace = {q(target)} }})" if move
+             else f"hl.dsp.focus({{ workspace = {q(target)} }})")
 
 
 # --- ranges ↔ screens ---------------------------------------------------------------------------
@@ -70,26 +84,28 @@ def setup(previous=None):
     """Bind each screen's range to it; fix workspaces sitting on the wrong screen. Returns the mapping."""
     mons = hj("monitors")
     base_of = bases(mons)
-    batch = []
+    rules = []
     # A monitor that went away: its empty workspaces may vanish; windows stay (Hyprland moves them).
     for name, base in (previous or {}).items():
         if name not in base_of:
-            batch += [f"keyword workspace {base + i}, persistent:false" for i in range(1, PERSISTENT + 1)]
+            rules += [f"hl.workspace_rule({{ workspace = {q(base + i)}, persistent = false }})"
+                      for i in range(1, PERSISTENT + 1)]
     for name, base in base_of.items():
-        batch += [f"keyword workspace {base + i}, monitor:{name}, persistent:true"
-                  + (", default:true" if i == 1 else "") for i in range(1, PERSISTENT + 1)]
-    hypr("--batch", " ; ".join(batch))
+        rules += [f"hl.workspace_rule({{ workspace = {q(base + i)}, monitor = {q(name)}, persistent = true"
+                  + (", default = true" if i == 1 else "") + " })" for i in range(1, PERSISTENT + 1)]
+    lua(*rules)
 
     was = focused(mons)
     for m in mons:  # a screen showing someone else's workspace switches to its own first one
         if owner(m["activeWorkspace"]["id"], base_of) != m["name"]:
-            hypr("--batch", f"dispatch focusmonitor {m['name']} ; dispatch workspace {base_of[m['name']] + 1}")
+            lua(f"hl.dispatch(hl.dsp.focus({{ monitor = {q(m['name'])} }}))",
+                f"hl.dispatch(hl.dsp.focus({{ workspace = {q(base_of[m['name']] + 1)} }}))")
     for ws in hj("workspaces"):  # workspaces (with windows) parked on the wrong screen go home
         home = owner(ws["id"], base_of)
         if home and ws["monitor"] != home:
-            hypr("dispatch", "moveworkspacetomonitor", str(ws["id"]), home)
+            dispatch(f"hl.dsp.workspace.move({{ workspace = {q(ws['id'])}, monitor = {q(home)} }})")
     if was:
-        hypr("dispatch", "focusmonitor", was["name"])
+        dispatch(f"hl.dsp.focus({{ monitor = {q(was['name'])} }})")
     return base_of
 
 
@@ -115,10 +131,12 @@ def layout():
                 continue
             for key in list(waiting):
                 if key in c["class"].lower():
-                    hypr("dispatch", "movetoworkspacesilent", f"{waiting.pop(key)[1]},address:{c['address']}")
+                    ws = waiting.pop(key)[1]
+                    dispatch(f"hl.dsp.window.move({{ workspace = {q(ws)}, window = {q('address:' + c['address'])}, "
+                             "follow = false })")
                     before.add(c["address"])
                     break
-    hypr("dispatch", "workspace", str(term_ws))  # end on the laptop's first workspace
+    dispatch(f"hl.dsp.focus({{ workspace = {q(term_ws)} }})")  # end on the laptop's first workspace
 
 
 # --- daemon -------------------------------------------------------------------------------------
@@ -152,7 +170,7 @@ def daemon():
         open(LAYOUT_DONE, "w").close()
         layout()
     for ev in events():
-        # hotplug, or a config reload (it drops the rules set with hyprctl keyword)
+        # hotplug, or a config reload (it drops the rules set with hyprctl eval)
         if ev.startswith(("monitoradded>>", "monitorremoved>>", "configreloaded>>")):
             time.sleep(0.5)  # let Hyprland finish moving things around
             base_of = setup(base_of)

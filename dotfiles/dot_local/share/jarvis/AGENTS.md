@@ -9,7 +9,8 @@ notification. Explain in plain language; the owner decides what changes.
   That repo's `CLAUDE.md` holds the project rules; read it before proposing changes to the desktop.
 - Target hardware: Framework Laptop 13, AMD Ryzen AI 9 HX 370 (Radeon 890M, MediaTek MT7925 Wi-Fi).
 - Dotfiles are managed by **chezmoi** from the repo's `dotfiles/` dir. Editing `~/.config/...` directly gets
-  overwritten on the next `chezmoi update`; machine-only Hyprland tweaks go in `~/.config/hypr/local.conf`.
+  overwritten on the next `chezmoi update`; machine-only Hyprland tweaks go in `~/.config/hypr/local.lua`. Hyprland's config is **Lua** (`hyprland.lua`;
+  `hyprctl dispatch` takes Lua, `hyprctl eval` replaces `keyword`).
 - Bar: waybar. Menus: fuzzel. Notifications: mako (`fw-notify "title" "body"`). Terminal: kitty.
 - Helpers in `~/.local/bin/fw-*`: control-center, power-panel, display-panel, opencode (Ollama servers),
   claude-limits, workspaces (per-screen workspaces), crash-watch, jarvis, capture, record, nightlight.

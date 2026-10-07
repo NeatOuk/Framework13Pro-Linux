@@ -1,0 +1,10 @@
+# Removed from $HOME on apply: legacy Hyprland hyprlang configs, replaced by the Lua config (hyprland.lua + modules).
+# Not local.conf / displays.conf: those hold the user's own settings (migrated by run_once_after_hypr-lua-migrate.sh).
+.config/hypr/hyprland.conf
+.config/hypr/monitors.conf
+.config/hypr/theme.conf
+.config/hypr/autostart.conf
+.config/hypr/looknfeel.conf
+.config/hypr/input.conf
+.config/hypr/windows.conf
+.config/hypr/bindings.conf
