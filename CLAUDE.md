@@ -83,6 +83,8 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 - **hyprctl in Lua mode**: `hyprctl dispatch '<lua dispatcher>'` (old `dispatch workspace 2` → "Invalid dispatcher"); `hyprctl eval '<lua>'` replaces `keyword`/`--batch`. Quote Lua strings from Python with `json.dumps`. The config manager is chosen at Hyprland start: switching .conf↔.lua needs a re-login, not `hyprctl reload`.
 - `Hyprland --verify-config -c <hyprland.lua>` checks syntax + unknown keys (not dispatcher args — test those, see below).
 - **Live tests never act on the active window** (it's the user's terminal): always pass `window = "address:0x…"` for a verified throwaway window, and never selector-less close/move/scratchpad.
+- **Stop processes by PID, never `pkill -f <pattern>`** from an agent's shell: the tool runs `bash -c '<whole command>'`, so the pattern matches that shell and kills it. Read the helper's pidfile in `$XDG_RUNTIME_DIR` and check `/proc/$pid/cmdline`, or use `pgrep -x <name>`.
+- **App windows tile** (user decision): new apps and tools get no float/size/center window rule; only inherent popups (pavucontrol, blueman-manager, progress dialogs) and Jarvis task windows float. Ask before adding a float rule.
 - Launch GUI apps through uwsm: `uwsm app -- <cmd>`; fuzzel uses `--launch-prefix="uwsm app -- "`.
 - Session env goes in `dotfiles/dot_config/environment.d/` (read by systemd --user), not Hyprland `env =`.
 - Icons: **Font Awesome 6 Free/Brands only** (no Nerd Font codepoints ≥ U+F0000). Fonts: JetBrains Mono, Noto (incl. Khmer).
