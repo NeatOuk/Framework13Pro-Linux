@@ -1,0 +1,4 @@
+-- Written by fw-settings (Settings → Appearance / Input): one hl.config call with only the values changed there.
+-- Created empty once; the app replaces this file. Put hand-written overrides in local.lua (loaded after this).
+-- fw-settings checks the whole config with `Hyprland --verify-config` when it adds a setting, and that runs every
+-- top-level statement: in local.lua, start programs only inside hl.on("hyprland.start", ...) or a binding.

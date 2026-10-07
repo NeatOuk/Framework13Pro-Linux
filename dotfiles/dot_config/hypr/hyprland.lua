@@ -10,4 +10,5 @@ require("looknfeel")
 require("input")
 require("windows")
 require("bindings")
+require("settings")    -- fw-settings Appearance / Input (written by the app)
 require("local")       -- machine-local, created once, never overwritten by chezmoi
