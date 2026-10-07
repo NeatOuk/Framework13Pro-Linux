@@ -648,7 +648,8 @@ def reload(p=None):
     """Make running apps pick up the files; each step is a no-op when the app isn't running.
 
     fuzzel and hyprlock read their config at start, so they need nothing. GTK 3 apps recolour through
-    apply_gtk(); GTK 4 (libadwaita) and Qt apps read their colours at start.
+    apply_gtk(); GTK 4 (libadwaita) apps read their colours at start. Qt apps on qt6ct (Citadel) recolour a few
+    seconds after _nudge_qt6ct().
     """
     p = p or palette()
     try:
@@ -669,6 +670,19 @@ def reload(p=None):
         except OSError:
             pass
     apply_gtk(p)
+    _nudge_qt6ct()
+
+
+def _nudge_qt6ct():
+    """Running Qt apps on qt6ct re-read their palette when something in ~/.config/qt6ct/ is replaced (it watches
+    the directory, not our colour file), so replace qt6ct.conf with itself."""
+    path = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
+    try:
+        text = _read(path)
+        if text is not None:
+            _atomic(path, text)
+    except (OSError, UnicodeDecodeError):
+        pass
 
 
 def init():
