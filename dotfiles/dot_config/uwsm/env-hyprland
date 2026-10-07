@@ -10,3 +10,8 @@ export QT_QPA_PLATFORMTHEME=qt6ct
 # writes NoDisplay copies here at each login. fuzzel ignores NotShowIn/OnlyShowIn, and ~/.local/share/applications
 # would hide them in GNOME too, so this dir is on the data path for the Hyprland session only. Needs a re-login.
 export XDG_DATA_DIRS="$HOME/.local/share/fw13/hyprland:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+
+# 256/truecolour terminal tools use kitty's 16 colours (the fw13 palette, recoloured live on a theme change)
+# instead of their own built-in schemes. Only when not set already (e.g. by the user's shell profile).
+export FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:---color=16}"
+export BAT_THEME="${BAT_THEME:-ansi}"

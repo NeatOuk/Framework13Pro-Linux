@@ -12,15 +12,24 @@ GTK and Qt apps follow too (read at app start; GTK 3 also live, see apply_gtk())
                         link_gtk()).
   qt6ct-colors.conf     qt6ct colour scheme; ~/.config/qt6ct/qt6ct.conf points at it and ~/.config/uwsm/env-hyprland
                         sets QT_QPA_PLATFORMTHEME=qt6ct for the Hyprland session only (new Qt apps after re-login).
-These three are not chezmoi seeds: ensure_files() (init(), run_once) writes them from the current palette, so an
+  fcitx5-theme.conf     fcitx5 classic UI theme; ~/.local/share/fcitx5/themes/fw13/theme.conf links to it
+                        (link_fcitx()) and classicui.conf selects it in Hyprland sessions (apply_fcitx()).
+These four are not chezmoi seeds: ensure_files() (init(), run_once) writes them from the current palette, so an
 upgrade of a wallpaper-following install does not start out with Tokyo Night GTK/Qt colours.
+
+Apps with their own settings files, changed only from a Hyprland session:
+  Chromium   GTK mode (extensions.theme.system_theme) once per profile at login, unless the user chose a theme
+             (chromium_gtk()); it then takes its colours from the fw13 GTK theme. GNOME's Chromium too (Adwaita).
+  VS Code    opt-in (store VSCODE_ON): theme-scoped workbench.colorCustomizations, removed at logout.
+Terminal tools (btop's TTY theme, fzf --color=16, bat's ansi theme) use kitty's 16 colours: nothing to write.
 
 Other desktops on the same account (Fedora Workstation/KDE bases, CLAUDE.md 3a): gtk-theme and color-scheme
 (org.gnome.desktop.interface, dconf) and ~/.config/gtk-4.0/gtk.css are per user, not per session. So they are only
 set from a Hyprland session, the values they replace are saved first (store key GTK_SAVED), and session_end() /
-restore_gtk() put them back and remove our gtk-4.0/gtk.css; session_start() re-applies at the next Hyprland login
-(`python3 -m fw13.theme session-start|session-end`). Until a session_end() runs (e.g. after a crash), GNOME shows
-the fw13 GTK theme and our light/dark choice; KDE resets gtk-theme itself at Plasma login.
+restore_gtk() put them back and remove our gtk-4.0/gtk.css (the same for fcitx5's Theme and the VS Code block);
+session_start() re-applies at the next Hyprland login (`python3 -m fw13.theme session-start|session-end`). Until
+a session_end() runs (e.g. after a crash), GNOME shows the fw13 GTK theme and our light/dark choice; KDE resets
+gtk-theme itself at Plasma login.
 
 State lives in fw13.store under "theme":
   {"source": "tokyo-night" | "wallpaper", "mode": "dark" | "light", "type": "scheme-tonal-spot",
@@ -28,8 +37,12 @@ State lives in fw13.store under "theme":
 Palette values are "#rrggbb" ("shadow" is "#rrggbbaa"); "ansi" is the 16 terminal colours.
 """
 import colorsys
+import contextlib
+import fcntl
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -349,6 +362,35 @@ def _qt_scheme(p):
             f"inactive_colors={line(active)}\n")
 
 
+def _fcitx_theme(p):
+    """fcitx5 classic UI theme (candidate popup and its menu), laid out like fcitx5's default-dark. The page and
+    menu images are links to default-dark's (link_fcitx()). No [AccentColorField]: with it, fcitx5 would paint
+    those parts in the desktop portal's accent colour instead of ours."""
+    sel, on_sel = p["accent"], _on(p["accent"], p)
+    lines = [f"# {HEAD}", "[Metadata]", "Name=fw13", "Version=1", "Author=fw13",
+             "Description=fw13 palette (Settings → Appearance)", "ScaleWithDPI=True", ""]
+
+    def margins(section, n):
+        return [f"[{section}]", f"Left={n}", f"Right={n}", f"Top={n}", f"Bottom={n}", ""]
+    lines += ["[InputPanel]", f"NormalColor={p['fg_bright']}", f"HighlightCandidateColor={on_sel}",
+              f"HighlightColor={p['accent']}", f"HighlightBackgroundColor={p['surface2']}",
+              "PageButtonAlignment=Last Candidate", ""]
+    lines += margins("InputPanel/TextMargin", 5) + margins("InputPanel/ContentMargin", 2)
+    lines += ["[InputPanel/Background]", f"Color={p['bg']}", f"BorderColor={p['border']}", "BorderWidth=2", ""]
+    lines += margins("InputPanel/Background/Margin", 2)
+    lines += ["[InputPanel/Highlight]", f"Color={sel}", ""] + margins("InputPanel/Highlight/Margin", 5)
+    for name, img in (("PrevPage", "prev.svg"), ("NextPage", "next.svg")):
+        lines += [f"[InputPanel/{name}]", f"Image={img}", "",
+                  f"[InputPanel/{name}/ClickMargin]", "Left=5", "Right=5", "Top=4", "Bottom=4", ""]
+    lines += ["[Menu]", f"NormalColor={p['fg_bright']}", f"HighlightCandidateColor={on_sel}", ""]
+    lines += ["[Menu/Background]", f"Color={p['bg']}", f"BorderColor={p['border']}", "BorderWidth=2", ""]
+    lines += margins("Menu/Background/Margin", 2) + margins("Menu/ContentMargin", 2)
+    lines += ["[Menu/CheckBox]", "Image=radio.svg", "", "[Menu/SubMenu]", "Image=arrow.svg", ""]
+    lines += ["[Menu/Highlight]", f"Color={sel}", ""] + margins("Menu/Highlight/Margin", 5)
+    lines += ["[Menu/Separator]", f"Color={p['muted']}", ""] + margins("Menu/TextMargin", 5)
+    return "\n".join(lines)
+
+
 def render(p):
     """{filename in ~/.config/fw13/theme: text} for palette `p`."""
     v = _hypr_values(p)
@@ -393,7 +435,32 @@ def render(p):
     return {"hypr.lua": hypr, "waybar.css": waybar, "fuzzel.ini": fuzzel, "mako": mako,
             "kitty.conf": "\n".join(kitty) + "\n", "hyprlock.conf": hyprlock,
             "gtk3.css": _gtk_css(p, variables=False), "gtk4.css": _gtk_css(p, variables=True),
-            "qt6ct-colors.conf": _qt_scheme(p)}
+            "qt6ct-colors.conf": _qt_scheme(p), "fcitx5-theme.conf": _fcitx_theme(p),
+            "framework-logo.svg": _framework_logo(p, 18), "framework-logo@2x.svg": _framework_logo(p, 36)}
+
+
+# Framework's gear mark (Framework Computer's trademark; path from Simple Icons, CC0, source frame.work), drawn by the
+# bar's launcher button (waybar style.css background-image) in the accent colour. The one non-Font-Awesome icon,
+# by the user's choice. Written at exactly the size the bar shows (18 px, 36 px for scale-2 surfaces) and picked with
+# -gtk-scaled() in style.css: GTK resamples CSS background images with a cheap filter, which makes any other size look
+# jagged or soft (fractional scaling draws the bar at scale 2).
+FRAMEWORK_LOGO = (
+    "M23.186 9.07 21.41 8.019a2.78 2.78 0 0 1-1.344-2.391V3.523c0-.431-.19-.837-.516-1.108A11.965 11.965 "
+    "0 0 0 16.317.493a1.356 1.356 0 0 0-1.193.091L13.347 1.64a2.622 2.622 0 0 1-2.688 0L8.882.584a1.348 1"
+    ".348 0 0 0-1.194-.09 11.93 11.93 0 0 0-3.231 1.918 1.44 1.44 0 0 0-.516 1.108v2.104c0 .986-.51 1.897"
+    "-1.344 2.392L.823 9.068c-.363.215-.61.588-.675 1.013A12.24 12.24 0 0 0 0 12.001c0 .651.048 1.292.145"
+    " 1.916.065.425.312.801.675 1.016l1.774 1.052a2.78 2.78 0 0 1 1.344 2.392v2.104c0 .431.191.837.516 1."
+    "108.965.8 2.054 1.452 3.231 1.919.393.155.831.124 1.194-.091l1.777-1.055a2.622 2.622 0 0 1 2.688 0l1"
+    ".777 1.055c.363.215.804.246 1.193.091a11.973 11.973 0 0 0 3.232-1.92 1.44 1.44 0 0 0 .516-1.107v-2.1"
+    "04a2.78 2.78 0 0 1 1.344-2.392l1.774-1.052c.363-.215.61-.588.675-1.016.094-.624.145-1.265.145-1.916 "
+    "0-.652-.048-1.293-.145-1.917a1.41 1.41 0 0 0-.67-1.013zM12.003 19.41c-3.981 0-7.21-3.317-7.21-7.407s"
+    "3.229-7.406 7.21-7.406c3.98 0 7.21 3.316 7.21 7.406s-3.23 7.407-7.21 7.407z"
+)
+
+
+def _framework_logo(p, px):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{px}" height="{px}" viewBox="0 0 24 24">'
+            f'<path fill="#{_h(p["accent"])}" d="{FRAMEWORK_LOGO}"/></svg>\n')
 
 
 # ---- GTK theme + user gtk.css -------------------------------------------------------------------------------
@@ -499,16 +566,28 @@ def _write_gtk_theme(p, only_missing=False):
     return written
 
 
-def _atomic(path, text):
+def _atomic(path, text, mode=0o644):
     fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(path) + "-", dir=os.path.dirname(path))
     try:
         with os.fdopen(fd, "w") as f:
             f.write(text)
-        os.chmod(tmp, 0o644)
+        os.chmod(tmp, mode)
         os.replace(tmp, path)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
+
+
+def _atomic_user(path, text):
+    """_atomic() for a file of another app (settings.json, classicui.conf, Chromium's Preferences): through a
+    symlink to its target (the user may keep it in a dotfiles repo) and keeping the file's mode."""
+    path = os.path.realpath(path)
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except FileNotFoundError:
+        mode = 0o644
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    _atomic(path, text, mode=mode)
 
 
 def ensure_files():
@@ -628,19 +707,521 @@ def restore_gtk():
         pass
 
 
+# ---- fcitx5 candidate popup ---------------------------------------------------------------------------------
+
+FCITX_THEME = "fw13"
+FCITX_THEME_DIR = os.path.expanduser("~/.local/share/fcitx5/themes/" + FCITX_THEME)
+FCITX_IMAGES = "/usr/share/fcitx5/themes/default-dark"  # prev/next/radio/arrow.svg (fcitx5-data)
+FCITX_CONF = os.path.expanduser("~/.config/fcitx5/conf/classicui.conf")
+FCITX_KEYS = ("Theme", "DarkTheme")  # classic UI: theme for a light / dark desktop (UseDarkTheme)
+FCITX_SAVED = "theme_fcitx_saved"  # fw13.store key: the classicui.conf values apply_fcitx() replaced
+
+
+def link_fcitx():
+    """Make ~/.local/share/fcitx5/themes/fw13/ a theme: theme.conf → our fcitx5-theme.conf, images → fcitx5's
+    default-dark ones. Links only (they follow every palette change); a real file there is left alone."""
+    links = {"theme.conf": os.path.join(DIR, "fcitx5-theme.conf")}
+    for img in ("prev.svg", "next.svg", "radio.svg", "arrow.svg"):
+        if os.path.isfile(os.path.join(FCITX_IMAGES, img)):
+            links[img] = os.path.join(FCITX_IMAGES, img)
+    try:
+        os.makedirs(FCITX_THEME_DIR, exist_ok=True)
+        for name, target in links.items():
+            path = os.path.join(FCITX_THEME_DIR, name)
+            if os.path.islink(path):
+                if os.readlink(path) == target:
+                    continue
+                os.unlink(path)
+            elif os.path.lexists(path):
+                continue
+            os.symlink(target, path)
+    except OSError:
+        pass
+
+
+def _ini_top(text, key):
+    """Value of a top-level (before any [section]) `key=` line in fcitx5 config `text`, None if absent."""
+    for line in (text or "").splitlines():
+        if line.strip().startswith("["):
+            break
+        k, sep, v = line.partition("=")
+        if sep and k.strip() == key:
+            return v.strip()
+    return None
+
+
+def _ini_set_top(text, values):
+    """`text` with the top-level keys in `values` set (value None: line removed), other lines kept as they are."""
+    lines = (text or "").splitlines()
+    end = next((i for i, ln in enumerate(lines) if ln.strip().startswith("[")), len(lines))
+    head, seen = [], set()
+    for line in lines[:end]:
+        k, sep, _ = line.partition("=")
+        if sep and k.strip() in values:
+            seen.add(k.strip())
+            if values[k.strip()] is not None:
+                head.append(f"{k.strip()}={values[k.strip()]}")
+            continue
+        head.append(line)
+    head += [f"{k}={v}" for k, v in values.items() if k not in seen and v is not None]
+    out = head + lines[end:]
+    return "\n".join(out) + "\n" if out else ""
+
+
+def _read_quiet(path):
+    try:
+        return _read(path)
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def apply_fcitx():
+    """Point fcitx5's classic UI (Theme and DarkTheme in ~/.config/fcitx5/conf/classicui.conf) at the fw13 theme
+    and reload fcitx5. Only inside Hyprland: the file is per user, so the values replaced are saved first
+    (FCITX_SAVED) and restore_fcitx() puts them back at logout, like apply_gtk(). Returns None or a short note."""
+    if not _in_hyprland():
+        return None
+    link_fcitx()
+    try:
+        cur = _read(FCITX_CONF)
+    except (OSError, UnicodeDecodeError):
+        return f"{FCITX_CONF} is not readable; the input method popup keeps its theme"
+    old = {k: _ini_top(cur, k) for k in FCITX_KEYS}
+    if all(v == FCITX_THEME for v in old.values()):
+        return None
+    saved = store.get(FCITX_SAVED)
+    if isinstance(saved, dict):  # left over (no session_end(), e.g. a crash): keep what was picked since then
+        new = {**saved, **{k: v for k, v in old.items() if v != FCITX_THEME}}
+    else:  # values that are already ours are not worth saving: restore removes them
+        new = {"exists": cur is not None, **{k: (None if v == FCITX_THEME else v) for k, v in old.items()}}
+    if new != saved:
+        try:
+            store.set(FCITX_SAVED, new)
+        except OSError:
+            return "Could not save the input method theme; left as is"
+    try:
+        _atomic_user(FCITX_CONF, _ini_set_top(cur, {k: FCITX_THEME for k in FCITX_KEYS}))
+    except OSError as e:
+        return f"Could not set the input method theme: {e}"
+    _quiet("fcitx5-remote", "--check", "-r")
+    return None
+
+
+def restore_fcitx():
+    """Undo apply_fcitx(): Theme/DarkTheme back to the saved values while they are still ours (one the user
+    picked in fcitx5's settings meanwhile is kept), and remove classicui.conf if we created it and it holds
+    nothing else. Safe anywhere; a no-op if nothing is saved."""
+    saved = store.get(FCITX_SAVED)
+    if not isinstance(saved, dict):
+        return
+    try:
+        cur = _read(FCITX_CONF)
+        if cur is not None:
+            back = {k: saved.get(k) for k in FCITX_KEYS if _ini_top(cur, k) == FCITX_THEME}
+            text = _ini_set_top(cur, back) if back else cur
+            if not saved.get("exists") and not text.strip() and not os.path.islink(FCITX_CONF):
+                os.unlink(FCITX_CONF)
+            elif text != cur:
+                _atomic_user(FCITX_CONF, text)
+    except (OSError, UnicodeDecodeError):
+        return
+    try:
+        data = store.load()
+        data.pop(FCITX_SAVED, None)
+        store.save(data)
+    except OSError:
+        pass
+
+
+# ---- Chromium GTK mode --------------------------------------------------------------------------------------
+
+CHROMIUM_DIR = os.path.expanduser("~/.config/chromium")
+CHROMIUM_DONE = "theme_chromium_gtk"  # fw13.store key: profile dirs chromium_gtk() has handled (once each)
+CHROMIUM_HINT = "theme_chromium_hint"  # fw13.store key: True when the setting was protected (Appearance hint)
+
+
+def _chromium_running():
+    """True if Chromium (any profile of ~/.config/chromium) is running, or we cannot tell."""
+    try:
+        r = subprocess.run(["pgrep", "-x", "chromium-browse"], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=5)
+        if r.returncode == 0:
+            return True
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    lock = os.path.join(CHROMIUM_DIR, "SingletonLock")
+    if not os.path.lexists(lock):
+        return False
+    try:  # "<hostname>-<pid>": live if that pid exists on this host
+        host, _, pid = os.readlink(lock).rpartition("-")
+    except OSError:
+        return True
+    return host != os.uname().nodename or not pid.isdigit() or os.path.exists(f"/proc/{pid}")
+
+
+def _mac_protected(path):
+    """True if Chromium keeps a MAC for extensions.theme in the prefs file `path` (protection.macs, nested or
+    dotted); editing a protected value would make Chromium reset it and warn about settings changed outside."""
+    try:
+        with open(path) as f:
+            macs = json.load(f).get("protection", {}).get("macs", {})
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError, AttributeError):
+        return True
+    if not isinstance(macs, dict):
+        return False
+    ext = macs.get("extensions")
+    return ((isinstance(ext, dict) and "theme" in ext)
+            or any(k.startswith("extensions.theme") for k in macs))
+
+
+def _chromium_profiles():
+    return [n for n in sorted(os.listdir(CHROMIUM_DIR)) if n not in ("System Profile", "Guest Profile")
+            and os.path.isfile(os.path.join(CHROMIUM_DIR, n, "Preferences"))]
+
+
+def _chromium_own(theme, browser_theme):
+    """True if the user chose a theme: GTK/Classic (system_theme), a theme extension, or a colour (any
+    browser.theme key but the light/dark color_scheme: user_color[2], color_variant[2], is_grayscale[2],
+    follows_system_colors, saved_local_theme, ...)."""
+    return ("system_theme" in theme or bool(theme.get("id"))
+            or any(k not in ("color_scheme", "color_scheme2") for k in browser_theme))
+
+
+def _chromium_theme(prefs):
+    """(data, extensions.theme, browser.theme) of a Preferences file; TypeError/AttributeError if it is not that
+    shape, OSError/ValueError if unreadable."""
+    with open(prefs) as f:
+        data = json.load(f)
+    theme = data.setdefault("extensions", {}).setdefault("theme", {})
+    browser_theme = data.get("browser", {}).get("theme", {})
+    if not isinstance(theme, dict) or not isinstance(browser_theme, dict):
+        raise TypeError(prefs)
+    return data, theme, browser_theme
+
+
+def _chromium_hint_needed():
+    """True while a profile still has the protected setting unset (the Appearance hint stays until then)."""
+    for name in _chromium_profiles():
+        prefs = os.path.join(CHROMIUM_DIR, name, "Preferences")
+        try:
+            _data, theme, browser_theme = _chromium_theme(prefs)
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        if not _chromium_own(theme, browser_theme) and (
+                _mac_protected(prefs) or _mac_protected(os.path.join(CHROMIUM_DIR, name, "Secure Preferences"))):
+            return True
+    return False
+
+
+def chromium_gtk():
+    """Chromium in GTK mode (its colours from the fw13 GTK theme, see apply_gtk()): set
+    extensions.theme.system_theme = 1 in each profile's Preferences, once per profile, only when the key is not
+    there (a theme the user chose, incl. a theme extension or colour, is never overridden), Chromium is not
+    running (it rewrites Preferences on exit) and the value is not MAC-protected. Only inside Hyprland.
+    Returns None or a short note."""
+    if not _in_hyprland():
+        return None
+    if store.get(CHROMIUM_HINT) and not (os.path.isdir(CHROMIUM_DIR) and _chromium_hint_needed()):
+        _drop(CHROMIUM_HINT)  # GTK chosen in Chromium meanwhile, or the profile is gone
+    if not os.path.isdir(CHROMIUM_DIR):
+        return None
+    done = store.get(CHROMIUM_DONE)
+    done = done if isinstance(done, list) else []
+    todo = [n for n in _chromium_profiles() if n not in done]
+    if not todo:
+        return None
+    if _chromium_running():
+        return "Chromium is running; GTK mode is set at the next login"
+    notes = []
+    for name in todo:
+        prefs = os.path.join(CHROMIUM_DIR, name, "Preferences")
+        try:
+            data, theme, browser_theme = _chromium_theme(prefs)
+        except (OSError, ValueError):
+            continue  # unreadable now: try again next login
+        except (TypeError, AttributeError):
+            done.append(name)  # not the shape we know: left alone
+            continue
+        if _chromium_own(theme, browser_theme):
+            done.append(name)  # the user's own choice
+            continue
+        if _mac_protected(prefs) or _mac_protected(os.path.join(CHROMIUM_DIR, name, "Secure Preferences")):
+            try:
+                store.set(CHROMIUM_HINT, True)
+            except OSError:
+                pass
+            notes.append("Chromium protects its theme setting; choose GTK in Chromium's Settings → Appearance")
+            done.append(name)
+            continue
+        theme["system_theme"] = 1  # ui::SystemTheme::kGtk
+        try:
+            _atomic_user(prefs, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+        except OSError as e:
+            notes.append(f"Could not set Chromium's GTK mode: {e}")
+            continue
+        done.append(name)
+    try:
+        store.set(CHROMIUM_DONE, done)
+    except OSError:
+        pass
+    return "; ".join(dict.fromkeys(notes)) or None
+
+
+# ---- VS Code (opt-in, Settings → Appearance) ----------------------------------------------------------------
+
+VSCODE_SETTINGS = os.path.expanduser("~/.config/Code/User/settings.json")
+VSCODE_ON = "vscode_theme"  # fw13.store key: the switch (off by default)
+VSCODE_APPLIED = "theme_vscode_applied"  # fw13.store key: {"key": scope, "hash": of the block we wrote}
+# VS Code's own default themes (theme ids; 1.140: "Dark 2026"/"Light 2026" default, "Dark Modern"/"Light Modern"
+# the previous ones, migrated from "Default Dark Modern"). The colours are scoped to them, so a theme the user
+# picked keeps its own colours. Syntax colours stay the theme's, hence only the themes matching the palette's mode.
+VSCODE_THEMES = {"dark": ("Dark 2026", "Dark Modern"), "light": ("Light 2026", "Light Modern")}
+
+
+def _vscode_scope(p):
+    return "".join(f"[{t}]" for t in VSCODE_THEMES["dark" if _dark(p) else "light"])
+
+
+def _vscode_colors(p):
+    """workbench.colorCustomizations for palette `p`: window chrome, editor background and the terminal."""
+    sel = p["surface2"]
+    c = {
+        "focusBorder": p["accent"], "foreground": p["fg"], "descriptionForeground": p["fg_dim"],
+        "editor.background": p["bg"], "editor.foreground": p["fg_bright"],
+        "editor.lineHighlightBackground": p["surface"], "editor.selectionBackground": p["surface3"],
+        "editorLineNumber.foreground": p["fg_dim"], "editorLineNumber.activeForeground": p["fg_bright"],
+        "editorCursor.foreground": p["fg_bright"], "editorWidget.background": p["surface"],
+        "editorGroupHeader.tabsBackground": p["bg_dim"], "editorGroup.border": p["surface2"],
+        "tab.activeBackground": p["bg"], "tab.activeForeground": p["fg_bright"], "tab.activeBorderTop": p["accent"],
+        "tab.inactiveBackground": p["bg_dim"], "tab.inactiveForeground": p["fg_dim"], "tab.border": p["bg_dim"],
+        "titleBar.activeBackground": p["bg_dim"], "titleBar.activeForeground": p["fg"],
+        "titleBar.inactiveBackground": p["bg_dim"], "titleBar.inactiveForeground": p["fg_dim"],
+        "activityBar.background": p["bg_dim"], "activityBar.foreground": p["fg_bright"],
+        "activityBar.inactiveForeground": p["fg_dim"], "activityBar.activeBorder": p["accent"],
+        "activityBarBadge.background": p["accent"], "activityBarBadge.foreground": _on(p["accent"], p),
+        "sideBar.background": p["bg_dim"], "sideBar.foreground": p["fg"],
+        "sideBarSectionHeader.background": p["bg_dim"],
+        "statusBar.background": p["bg_dim"], "statusBar.foreground": p["fg"],
+        "statusBar.noFolderBackground": p["bg_dim"], "statusBar.debuggingBackground": p["warn"],
+        "statusBar.debuggingForeground": _on(p["warn"], p),
+        "panel.background": p["bg"], "panel.border": p["surface2"],
+        "panelTitle.activeBorder": p["accent"], "panelTitle.activeForeground": p["fg_bright"],
+        "list.activeSelectionBackground": sel, "list.activeSelectionForeground": p["fg_bright"],
+        "list.inactiveSelectionBackground": p["surface"], "list.hoverBackground": p["surface"],
+        "list.focusOutline": p["accent"], "list.highlightForeground": p["accent"],
+        "input.background": p["surface"], "input.foreground": p["fg_bright"], "input.border": p["surface3"],
+        "dropdown.background": p["surface"], "dropdown.foreground": p["fg_bright"],
+        "quickInput.background": p["surface"], "quickInput.foreground": p["fg_bright"],
+        "button.background": p["accent"], "button.foreground": _on(p["accent"], p),
+        "button.hoverBackground": _shade(p["accent"], 0.05 if _dark(p) else -0.05),
+        "badge.background": p["accent"], "badge.foreground": _on(p["accent"], p),
+        "progressBar.background": p["accent"], "textLink.foreground": ensure(p["accent"], p["bg"], 4.5),
+        "errorForeground": p["bad"], "editorError.foreground": p["bad"], "editorWarning.foreground": p["warn"],
+        "terminal.background": p["bg"], "terminal.foreground": p["fg"],
+        "terminalCursor.foreground": p["fg_bright"], "terminal.selectionBackground": sel,
+    }
+    names = ("Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White")
+    for i, n in enumerate(names):
+        c[f"terminal.ansi{n}"] = p["ansi"][i]
+        c[f"terminal.ansiBright{n}"] = p["ansi"][i + 8]
+    return {k: v[:7] for k, v in c.items()}
+
+
+def _hash(block):
+    return hashlib.sha256(json.dumps(block, sort_keys=True).encode()).hexdigest()
+
+
+@contextlib.contextmanager
+def _vscode_lock():
+    """One VS Code settings change at a time: the Settings page switch (a thread per flip) and a theme change
+    (reload(), maybe in another process) would otherwise interleave read-modify-write and lose the record."""
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or DIR, "fw13-vscode.lock")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a") as f:  # a new open file per caller: flock also excludes other threads of this process
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _vscode_load():
+    """(settings dict, text, None) or (None, None, note); text is the file as read (None if missing). A missing
+    or empty file is {}; JSONC (comments, trailing commas) is left alone, since rewriting it as JSON would drop
+    the user's comments."""
+    try:
+        text = _read(VSCODE_SETTINGS)
+    except (OSError, UnicodeDecodeError):
+        return None, None, "VS Code's settings.json is not readable; left as is"
+    if text is None or not text.strip():
+        return {}, text, None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None, None, ("VS Code's settings.json has comments or trailing commas; left as is "
+                            "(VS Code keeps its colours)")
+    if not isinstance(data, dict):
+        return None, None, "VS Code's settings.json is not a JSON object; left as is"
+    cc = data.get("workbench.colorCustomizations", {})
+    if not isinstance(cc, dict):
+        return None, None, "VS Code's workbench.colorCustomizations is not an object; left as is"
+    return data, text, None
+
+
+def _vscode_dump(data, text):
+    """JSON in the file's own layout: its indent (tab or n spaces; VS Code's default 4 for a new file), \\u
+    escapes if it used them, its final newline."""
+    m = re.search(r"\n([ \t]+)\S", text or "")
+    indent = (("\t" if m.group(1)[0] == "\t" else len(m.group(1))) if m else 4)
+    ascii_only = bool(text) and "\\u" in text and text.isascii()
+    out = json.dumps(data, indent=indent, ensure_ascii=ascii_only)
+    return out + "\n" if not text or text.endswith("\n") else out
+
+
+def _vscode_save(data, cc, text):
+    if cc:
+        data["workbench.colorCustomizations"] = cc
+    else:
+        data.pop("workbench.colorCustomizations", None)
+    _atomic_user(VSCODE_SETTINGS, _vscode_dump(data, text))
+
+
+def _drop(key):
+    try:
+        data = store.load()
+        data.pop(key, None)
+        store.save(data)
+    except OSError:
+        pass
+
+
+def _apply_vscode(p):
+    if not store.get(VSCODE_ON) or not _in_hyprland():
+        return None
+    if not os.path.isfile(VSCODE_SETTINGS) and not shutil.which("code"):
+        return None
+    p = p or palette()
+    data, text, note = _vscode_load()
+    if note:
+        return note
+    cc = dict(data.get("workbench.colorCustomizations", {}))
+    key, block = _vscode_scope(p), _vscode_colors(p)
+    applied = store.get(VSCODE_APPLIED)
+    applied = applied if isinstance(applied, dict) and isinstance(applied.get("key"), str) else None
+    if applied and applied["key"] in cc:
+        if _hash(cc[applied["key"]]) != applied.get("hash"):
+            return "VS Code's theme colours were edited by hand; left as is"
+        if applied["key"] != key:
+            del cc[applied["key"]]  # the palette changed mode: the other default themes now
+    if key in cc and not (applied and applied["key"] == key):
+        return f"VS Code's settings.json has its own colours for {key}; left as is"
+    if cc.get(key) == block and applied and applied.get("hash") == _hash(block):
+        return None
+    cc[key] = block
+    record = {"key": key, "hash": _hash(block)}
+    if applied and "was" in applied:
+        record["was"] = applied["was"]
+    elif not applied and (text is None or not text.strip()):
+        record["was"] = text  # None: no file before us (restore removes it again), "": an empty one
+    try:  # remember the block first: a block in the file without a record would look like the user's own
+        store.set(VSCODE_APPLIED, record)
+        _vscode_save(data, cc, text)
+    except OSError as e:
+        if applied:
+            store.set(VSCODE_APPLIED, applied)
+        else:
+            _drop(VSCODE_APPLIED)
+        return f"Could not write VS Code's settings: {e}"
+    return None
+
+
+def _restore_vscode():
+    applied = store.get(VSCODE_APPLIED)
+    if not isinstance(applied, dict) or not isinstance(applied.get("key"), str):
+        return None
+    data, text, note = _vscode_load()
+    if note:
+        return note  # the record stays: removed once the file is readable JSON again
+    cc = dict(data.get("workbench.colorCustomizations", {}))
+    key = applied["key"]
+    if key in cc and _hash(cc[key]) == applied.get("hash"):
+        del cc[key]
+        try:
+            if not cc and data.keys() <= {"workbench.colorCustomizations"} and "was" in applied:
+                if applied["was"] is None:  # we created the file and it holds nothing else
+                    if not os.path.islink(VSCODE_SETTINGS):
+                        os.unlink(VSCODE_SETTINGS)
+                else:
+                    _atomic_user(VSCODE_SETTINGS, applied["was"])
+            else:
+                _vscode_save(data, cc, text)
+        except OSError as e:
+            return f"Could not write VS Code's settings: {e}"
+    _drop(VSCODE_APPLIED)
+    return None
+
+
+def apply_vscode(p=None):
+    """Give VS Code's default themes the palette: one theme-scoped block in workbench.colorCustomizations of
+    ~/.config/Code/User/settings.json (VS Code recolours live). Only with the switch on (VSCODE_ON) and inside
+    Hyprland; restore_vscode() removes the block at logout. The block's hash is kept in the store: once it was
+    edited by hand, or the user has their own block for that scope, it is left alone. The file keeps its
+    layout (_vscode_dump()). Returns None or a note."""
+    try:
+        with _vscode_lock():
+            return _apply_vscode(p)
+    except OSError as e:
+        return f"Could not write VS Code's settings: {e}"
+
+
+def restore_vscode():
+    """Remove the block apply_vscode() wrote (unless it was edited by hand: then it is the user's now), and the
+    file itself if we created it and nothing else is in it. Safe anywhere; a no-op if nothing was applied.
+    Returns None or a note."""
+    try:
+        with _vscode_lock():
+            return _restore_vscode()
+    except OSError as e:
+        return f"Could not write VS Code's settings: {e}"
+
+
+def set_vscode(on):
+    """The Settings → Appearance switch: store it, then apply or remove the colours. Under the lock the stored
+    value decides, so quick flips (each in its own thread) end in the state of the last one stored. Returns None
+    or a note."""
+    try:
+        with _vscode_lock():
+            store.set(VSCODE_ON, bool(on))
+            if store.get(VSCODE_ON):
+                return _apply_vscode(None) or (None if _in_hyprland()
+                                               else "VS Code follows the theme in Hyprland sessions")
+            return _restore_vscode()
+    except OSError as e:
+        return f"Could not save the setting: {e}"
+
+
+# ---- Hyprland session ---------------------------------------------------------------------------------------
+
 def session_start():
     """At Hyprland login: missing files, the GTK 4 user gtk.css and gtk-theme/color-scheme (another desktop or
-    a session_end() may have reset them). Returns a note or None."""
+    a session_end() may have reset them), the fcitx5 theme, Chromium's GTK mode (once per profile) and the
+    VS Code colours (if switched on). Returns a note or None."""
     try:
         ensure_files()
     except OSError:
         pass
-    notes = [n for n in (link_gtk(), apply_gtk(refresh=False)) if n]
+    link_fcitx()
+    notes = [n for n in (link_gtk(), apply_gtk(refresh=False), apply_fcitx(), chromium_gtk(), apply_vscode())
+             if n]
     return "; ".join(notes) or None
 
 
 def session_end():
-    """At Hyprland logout: hand the shared GTK settings back to other desktops (restore_gtk())."""
+    """At Hyprland logout: hand the shared settings back to other desktops (GTK, fcitx5, VS Code)."""
+    restore_vscode()
+    restore_fcitx()
     restore_gtk()
 
 
@@ -671,6 +1252,9 @@ def reload(p=None):
             pass
     apply_gtk(p)
     _nudge_qt6ct()
+    if _in_hyprland() and _ini_top(_read_quiet(FCITX_CONF), "Theme") == FCITX_THEME:
+        _quiet("fcitx5-remote", "--check", "-r")  # re-reads the fw13 theme (theme.conf links to our file)
+    apply_vscode(p)
 
 
 def _nudge_qt6ct():
@@ -695,6 +1279,7 @@ def init():
         data["theme"] = state()
         store.save(data)
     ensure_files()
+    link_fcitx()
     return link_gtk()
 
 

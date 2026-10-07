@@ -197,6 +197,29 @@ report() {
 }
 
 # ============================================================================
+# Apps started as root through pkexec/sudo (Timeshift, other admin GTK tools) read root's GTK settings, not yours, so
+# they'd stay plain Adwaita. Point root at your generated fw13 theme (it follows the wallpaper and light/dark): a link
+# into root's theme path, root's GSettings gtk-theme (GTK on Wayland reads it before settings.ini) and a settings.ini
+# fallback. User decision: always, also in the GNOME session. A theme root was given by hand is left alone.
+root_theme() {
+  local theme="$HOME/.local/share/themes/fw13" current
+  [[ -f $theme/gtk-3.0/gtk.css ]] || { warn "no fw13 GTK theme yet (log in to Hyprland once, then re-run --user-only)"; return 0; }
+  say "Admin apps (run as root) use the fw13 theme"
+  $SUDO install -d -m 0755 /root/.local/share/themes /root/.config/gtk-3.0
+  $SUDO ln -sfn "$theme" /root/.local/share/themes/fw13
+  if ! $SUDO test -e /root/.config/gtk-3.0/settings.ini || $SUDO grep -q '^# fw13' /root/.config/gtk-3.0/settings.ini; then
+    printf '# fw13: root GTK apps use the fw13 theme (install.sh root_theme)\n[Settings]\ngtk-theme-name=fw13\n' \
+      | $SUDO tee /root/.config/gtk-3.0/settings.ini >/dev/null
+  fi
+  current="$($SUDO -H dbus-run-session -- gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null || true)"
+  if [[ $current == "'Adwaita'" || $current == "'fw13'" ]]; then
+    $SUDO -H dbus-run-session -- gsettings set org.gnome.desktop.interface gtk-theme fw13 \
+      || warn "couldn't set root's GTK theme"
+  else
+    warn "root has its own GTK theme ($current): left alone"
+  fi
+}
+
 user_phase() {
   say "mise tools (node, chezmoi, starship)"
   set +u; eval "$(mise activate bash)"; set -u
@@ -247,6 +270,10 @@ user_phase() {
 
   say "User services"
   systemctl --user enable podman.socket || true
+
+  root_theme
+
+
 
   if command -v citadel-daemon >/dev/null; then
     say "Citadel: start the service and enforce (blocks what you block or don't answer)"

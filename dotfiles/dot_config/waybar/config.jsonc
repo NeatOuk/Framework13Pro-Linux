@@ -8,7 +8,7 @@
   "modules-center": ["clock", "custom/recording"],
   "modules-right": ["tray", "bluetooth", "network", "custom/warp", "pulseaudio", "custom/display", "custom/claude", "custom/opencode", "cpu", "battery", "custom/control", "custom/power"],
 
-  "custom/menu": { "format": "", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
+  "custom/menu": { "format": " ", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
   // Workspace dots for THIS bar's screen (fw-workspaces). Waybar's own hyprland/workspaces click sends a
   // hyprlang dispatch that the Lua Hyprland config rejects (fixed in waybar git, not released yet).
   "custom/ws1": { "exec": "fw-workspaces dot 1", "return-type": "json", "interval": "once", "signal": 10, "on-click": "fw-workspaces click 1" },

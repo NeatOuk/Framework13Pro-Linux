@@ -15,6 +15,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from .. import hyprsettings as hs  # noqa: E402
+from .. import store  # noqa: E402
 from .. import theme  # noqa: E402
 from .. import wallpaper as wp  # noqa: E402
 from ..ui_theme import button, current, rgb, sync, watch  # noqa: E402
@@ -251,6 +252,8 @@ class AppearancePage(HyprPage):
         self.confirm = False  # "Reset to defaults" clicked once: show Cancel / Reset
         self.theming = False  # a theme change is running (matugen takes ~1 s): controls are insensitive
         self.queued = None    # (source, mode, type) asked for while one was running: run it next
+        self.vscode_busy = False  # a VS Code switch change is running
+        self.vscode_want = None   # the switch's last state while one was running: applied next
         self.walling = False  # a wallpaper change (set / add / remove / effect) is running
         self.removing = None  # picture right-clicked → "Remove from library": show Cancel / Remove
         install_thumb_css(self)
@@ -279,8 +282,37 @@ class AppearancePage(HyprPage):
             controls.append(self.row("Mode", mode))
             controls.append(self.row("Style", style, hint="How matugen builds the palette from the image"))
         self.row("Palette", swatches(), hint="Hover a colour for its name")
+        vscode = Gtk.Switch()
+        vscode.set_active(bool(store.get(theme.VSCODE_ON)))
+        vscode.connect("notify::active", lambda s, _p: self.set_vscode(s.get_active()))
+        controls.append(self.row(
+            "VS Code", vscode,
+            hint="Its default Dark/Light theme takes these colours (Hyprland only; removed at logout and when "
+                 "switched off). Settings Sync may copy them to other machines; after a crash GNOME keeps them "
+                 "until the next Hyprland login. settings.json with comments is left alone."))
+        if store.get(theme.CHROMIUM_HINT):
+            self.row("Chromium", None, hint="Choose GTK in Chromium's Settings → Appearance to use these colours")
         for w in controls:
             w.set_sensitive(not self.theming)
+
+    def set_vscode(self, on):
+        if self.vscode_busy:  # one at a time, in order: the last flip wins
+            self.vscode_want = on
+            return
+        self.vscode_busy = True
+        self.show_status("VS Code colours on…" if on else "VS Code colours off…", "dim")
+        background(lambda: theme.set_vscode(on), self.vscode_set)
+
+    def vscode_set(self, note):
+        self.vscode_busy = False
+        if self.vscode_want is not None:
+            nxt, self.vscode_want = self.vscode_want, None
+            if nxt != bool(store.get(theme.VSCODE_ON)):
+                self.set_vscode(nxt)
+                return False
+        # failures in the usual error style; notes (JSONC left alone, Hyprland only, ...) dim
+        self.show_status(note, "bad" if note and note.startswith(("Could not", "Error")) else "dim")
+        return False
 
     def set_theme(self, source, mode=None, scheme_type=None):
         if self.theming:  # one at a time: two set_source() calls would race on the store and files
