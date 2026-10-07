@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Jarvis: ask an AI agent — Claude Code, or OpenCode on any Ollama server from the OpenCode panel — about
 # this computer or the fw13-hypr repo. Tasks open in a floating kitty window (class fw-jarvis).
-#   fw-jarvis                  menu (bar robot icon with FW_BAR=1 → below the icon; SUPER+A)
+#   fw-jarvis                  the Jarvis panel (SUPER+A): ask and the answer appears inline (fw-jarvis-panel)
+#   fw-jarvis menu             the older fuzzel menu
+#   fw-jarvis crash | repo <agent> <task> | open claude|opencode   the panel's buttons
 #   fw-jarvis diagnose <file>  pick an agent to explain a crash report (from fw-crash-watch)
 # Ask/Diagnose run in ~/.local/share/jarvis, whose AGENTS.md/CLAUDE.md brief the agent on this OS.
 set -euo pipefail
@@ -11,14 +13,23 @@ CRASHES="${XDG_RUNTIME_DIR:-/tmp}/jarvis"
 if [[ -d "$HOME/Framework13Pro-Linux/.git" ]]; then REPO="$HOME/Framework13Pro-Linux"
 else REPO="$HOME/.local/share/fw13-hypr"; fi
 
+mkdir -p "$CRASHES"
+LOG="$CRASHES/jarvis.log"
+log() { printf '%s %s\n' "$(date +%T)" "$*" >> "$LOG"; }  # each step, so "nothing happened" can be traced
+
 pos=()
 if [[ -n ${FW_BAR:-} ]]; then
   mapfile -t pos < <(fw-menu-anchor jarvis)
   (( ${#pos[@]} )) || exit 0
 fi
 
-menu() { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}"; }
-ask()  { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines 0 </dev/null; }
+# fuzzel allows one instance (a lock in $XDG_RUNTIME_DIR): the next prompt fails silently if the previous menu
+# hasn't exited yet. Wait for it, at most 2 s.
+fuzzel_free() { local _; for _ in {1..40}; do pgrep -x fuzzel >/dev/null || return 0; sleep 0.05; done; }
+menu() { fuzzel_free; local rc=0 out; out="$(fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}")" || rc=$?
+         log "menu '$1' rc=$rc -> '$out'"; printf '%s' "$out"; return "$rc"; }
+ask()  { fuzzel_free; local rc=0 out; out="$(fuzzel --dmenu "${pos[@]}" --prompt-only "$1 › " </dev/null)" || rc=$?
+         log "ask '$1' rc=$rc -> ${#out} chars"; printf '%s' "$out"; return "$rc"; }
 
 # "label<TAB>target": claude, or provider/model for OpenCode (active server first).
 agents() {
@@ -29,6 +40,10 @@ agents() {
 pick_agent() {
   local list label
   mapfile -t list < <(agents)
+  if (( ${#list[@]} == 1 )); then  # only Claude (no Ollama servers yet): no menu for a single choice
+    printf '%s\n' "${list[0]#*$'\t'}"
+    return 0
+  fi
   label="$(printf '%s\n' "${list[@]}" | cut -f1 | menu "Agent" "${#list[@]}")" || return 1
   printf '%s\n' "${list[@]}" | awk -F'\t' -v l="$label" '$1 == l { print $2; exit }'
 }
@@ -40,8 +55,11 @@ launch() {
   if [[ $target == claude ]]; then cmd=(claude ${prompt:+"$prompt"})
   elif [[ $target == opencode ]]; then cmd=(opencode ${prompt:+--prompt "$prompt"})
   else cmd=(opencode --model "$target" ${prompt:+--prompt "$prompt"}); fi
-  [[ -n $prompt ]] && class=(--class fw-jarvis)
-  uwsm app -- kitty "${class[@]}" --directory "$dir" -e "${cmd[@]}" &
+  # Tasks keep their window when the agent exits (--hold), so an error stays readable instead of a window
+  # that flashes and closes.
+  [[ -n $prompt ]] && class=(--class fw-jarvis --hold)
+  log "launch in $dir: ${cmd[0]} (${#prompt} chars of prompt)"
+  uwsm app -- kitty "${class[@]}" --directory "$dir" -e "${cmd[@]}" >>"$LOG" 2>&1 &
 }
 
 diagnose() {
@@ -70,16 +88,25 @@ main() {
       [[ -n $text ]] || return 0
       target="$(pick_agent)" || return 0
       launch "$REPO" "$target" "$text" ;;
-    *crash*)
-      last="$(ls -t "$CRASHES"/crash-*.md 2>/dev/null | head -1)" || true
-      if [[ -n $last ]]; then diagnose "$last"; else fw-notify "Jarvis" "No crash reports since login"; fi ;;
+    *crash*) last_crash ;;
     *Claude*)   launch "$HOME" claude ;;
     *OpenCode*) launch "$HOME" opencode ;;
   esac
 }
 
+last_crash() {
+  local last
+  last="$(ls -t "$CRASHES"/crash-*.md 2>/dev/null | head -1)" || true
+  if [[ -n $last ]]; then diagnose "$last"; else fw-notify "Jarvis" "No crash reports since login"; fi
+}
+
+# No argument: the Jarvis panel (inline answers; fw-jarvis-panel). Its buttons come back here.
 case ${1:-} in
-  "")       main ;;
+  "")       exec fw-jarvis-panel ;;
+  menu)     main ;;                                   # the old fuzzel menu
   diagnose) diagnose "${2:?usage: fw-jarvis diagnose <file>}" ;;
-  *) echo "usage: fw-jarvis [diagnose <file>]" >&2; exit 2 ;;
+  crash)    last_crash ;;
+  repo)     launch "$REPO" "${2:?usage: fw-jarvis repo <agent> <task>}" "${3:?usage: fw-jarvis repo <agent> <task>}" ;;
+  open)     launch "$HOME" "${2:-claude}" ;;
+  *) echo "usage: fw-jarvis [menu | diagnose <file> | crash | repo <agent> <task> | open claude|opencode]" >&2; exit 2 ;;
 esac
