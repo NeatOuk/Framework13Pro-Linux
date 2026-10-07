@@ -1,0 +1,8 @@
+# Citadel outbound firewall (github.com/NeatOuk/citadel-app + citadel-helper), built as RPMs by install.sh.
+# Runtime (Fedora): Qt for Python for its window/tray; maxminddb for countries/network owners.
+python3-pyside6
+python3-maxminddb
+# Build tools for the two RPMs (their own .spec files)
+rpm-build
+make
+systemd-rpm-macros

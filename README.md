@@ -30,6 +30,7 @@ Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it a
 | Tools | mise installs node LTS, chezmoi and starship; Claude Code comes from Anthropic's native installer (updates itself) |
 | Shell | Lets you pick zsh, fish or bash |
 | Extras | Adds the Flathub remote (no apps installed), offers fingerprint enrollment, sets up Timeshift, and checks for firmware updates |
+| Citadel | Installs **Citadel**, an outbound firewall: when an app connects somewhere new it asks (Allow once / Always / Block) in its window, tray icon or a notification, and your answers become per-app policies. **Enforcement is on**, so blocked or unanswered connections really are blocked. It's built from [citadel-app](https://github.com/NeatOuk/citadel-app) and [citadel-helper](https://github.com/NeatOuk/citadel-helper) as RPMs (`dnf remove citadel citadel-helper` removes it). Turn blocking off any time with `citadel enforce off` or in Citadel → Settings |
 | Report | `~/.local/state/fw13-hypr/install-report.txt`: how many packages it added, their total size, and the largest 25 |
 
 Not supported: Atomic editions (Silverblue/Kinoite), since they can't install packages this way. The installer stops on those.

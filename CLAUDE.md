@@ -49,6 +49,7 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
 | RPM Fusion | steam, steam-devices, ffmpeg, gstreamer1-plugins-bad-freeworld |
 | Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm) |
 | mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship, opencode (self-update off) |
+| Built from source as RPMs (owner's repos) | **Citadel** outbound firewall: `citadel` (github.com/NeatOuk/citadel-app, `main`, release stamped `.gitYYYYMMDD.<sha>`) + `citadel-helper` (github.com/NeatOuk/citadel-helper, tag `v1.3.2`), built by `build_citadel_rpm` in install.sh with their own .spec files (no prebuilt packages exist); build tools + PySide6 in `packages/95-citadel.txt`. Override with `CITADEL_APP_REF`/`CITADEL_HELPER_REF`. User phase enables `citadel.service` and `citadel enforce on` (user decision). The helper's polkit rule lets wheel use it without a password (by design). |
 | Upstream installer | Claude Code via `curl -fsSL https://claude.ai/install.sh \| bash` → `~/.local/bin/claude`, self-updating. Not via mise npm: that skipped the package's postinstall, so no binary |
 
 Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freeworld`, toolbox, Docker CE, ProtonUp-Qt, Nerd Fonts, snapper/btrfs-assistant, Qt5 removal, CJK font removal, swayosd COPR, Arch support, bootc/ISO image.

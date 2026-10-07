@@ -56,9 +56,10 @@ jobs:
         run: ./install.sh --ci 2>&1 | tee install.log
       - name: Verify key binaries and dotfiles
         run: |
-          for b in Hyprland hyprlock hypridle waybar fuzzel kitty uwsm chromium-browser code steam timeshift restic mise; do
+          for b in Hyprland hyprlock hypridle waybar fuzzel kitty uwsm chromium-browser code steam timeshift restic mise citadel citadel-daemon citadel-app; do
             if command -v "$b" >/dev/null; then echo "ok  $b"; else echo "MISSING $b"; exit 1; fi
           done
+          rpm -q citadel citadel-helper   # built from the owner's repos by install.sh
           test -f "$HOME/.config/hypr/hyprland.lua"
           XDG_RUNTIME_DIR="$(mktemp -d)" Hyprland --i-am-really-stupid --verify-config -c "$HOME/.config/hypr/hyprland.lua" 2>&1 | tee verify.log | tail -3  # CI: root, no login session
           grep -qx 'config ok' verify.log   # Lua config (hyprlang .conf is deprecated since 0.55)
