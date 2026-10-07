@@ -9,3 +9,7 @@
 {{ if eq (dig "ollama" "api_key" "" .) "" }}
 .config/environment.d/60-ollama.conf
 {{ end }}
+
+# Python bytecode (created at runtime next to ~/.local/lib/fw13; never part of the source)
+.local/lib/**/__pycache__
+.local/lib/**/__pycache__/**

@@ -18,34 +18,13 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13.hypr import dispatch, hj, lua, q  # noqa: E402  (Lua-mode hyprctl helpers, shared)
+
 PERSISTENT = 5  # circles shown per screen
 RUN = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 PIDFILE = os.path.join(RUN, "fw-workspaces.pid")
 LAYOUT_DONE = os.path.join(RUN, "fw-workspaces.layout-done")
-
-
-def hypr(*args):
-    return subprocess.run(["hyprctl", *args], capture_output=True, text=True).stdout
-
-
-# Hyprland runs a Lua config: dispatchers and rules are Lua expressions, not the old hyprlang strings.
-def q(v):
-    return json.dumps(str(v))  # a JSON string is a valid Lua string literal
-
-
-def dispatch(expr):
-    return hypr("dispatch", expr)
-
-
-def lua(*statements):
-    return hypr("eval", "\n".join(statements))
-
-
-def hj(what):
-    try:
-        return json.loads(hypr("-j", what) or "[]")
-    except ValueError:
-        return []
 
 
 def bases(monitors):

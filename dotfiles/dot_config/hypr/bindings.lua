@@ -15,6 +15,7 @@ hl.bind("SUPER + E",         exec(files))
 hl.bind("SUPER + C",         exec(editor))
 hl.bind("SUPER + SHIFT + A", exec("uwsm app -- kitty -e claude"))
 hl.bind("SUPER + A",         exec("fw-jarvis"))
+hl.bind("SUPER + I",         exec("fw-settings"))
 hl.bind("SUPER + SHIFT + T", exec("uwsm app -- kitty --class fw-btop -e btop"))
 
 -- Windows

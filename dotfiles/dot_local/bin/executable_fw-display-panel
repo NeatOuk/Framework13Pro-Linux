@@ -1,53 +1,32 @@
 #!/usr/bin/env python3
 """Display panel: laptop brightness slider, drag-to-arrange monitors, per-monitor refresh rate and scale.
 
-Bar display icon (FW_BAR=1 → opens below the icon, a second click closes it); also
-fw-control-center → Display. Apply uses `hyprctl eval 'hl.monitor(...)'`, then asks to keep the change
-(reverts after 15 s). Keep saves ~/.config/hypr/displays.lua (required by hyprland.lua), keyed by
-monitor description so a monitor keeps its place whatever port or dock it's plugged into.
-GTK3 + gtk-layer-shell (python3-gobject, gtk-layer-shell); brightness via brightnessctl.
+Bar display icon (FW_BAR=1 → opens below the icon, a second click closes it). The editor itself lives in
+~/.local/lib/fw13 (ui_display.DisplayEditor) and is shared with fw-settings' Display page: Apply uses
+`hyprctl eval 'hl.monitor(...)'`, then asks to keep the change (reverts after 15 s); Keep saves
+~/.config/hypr/displays.lua. GTK3 + gtk-layer-shell (python3-gobject, gtk-layer-shell).
 """
 import json
-import re
 import os
 import signal
 import subprocess
 import sys
 
-import gi
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
-from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell  # noqa: E402
+
+from fw13 import ui_theme  # noqa: E402
+from fw13.hypr import hj  # noqa: E402
+from fw13.ui_display import DisplayEditor  # noqa: E402
 
 PANEL_W = 520
-CANVAS_H = 170
-KEEP_SECONDS = 15
 PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fw-display-panel.pid")
-SAVED = os.path.expanduser("~/.config/hypr/displays.lua")
-SCALES = [1, 1.2, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 1.8, 2, 2.4, 2.5, 3]
-
-CSS = b"""
-window { background: #1a1b26; color: #a9b1d6; border: 2px solid #7aa2f7;
-         font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 11pt; }
-.title { color: #7aa2f7; }
-.dim { color: #565f89; }
-button { background: #292e42; color: #c0caf5; border: none; border-radius: 0; box-shadow: none;
-         padding: 4px 14px; background-image: none; text-shadow: none; }
-button:hover { background: #3b4261; }
-button.primary { background: #7aa2f7; color: #1a1b26; }
-button:disabled { color: #565f89; }
-combobox button { padding: 2px 8px; }
-scale trough { background: #292e42; min-height: 6px; border-radius: 0; border: none; }
-scale highlight { background: #7aa2f7; border-radius: 0; border: none; }
-scale slider { background: #c0caf5; min-width: 14px; min-height: 14px; border-radius: 0;
-               border: none; box-shadow: none; }
-"""
-
-
-def sh(*cmd):
-    return subprocess.run(cmd, capture_output=True, text=True).stdout
 
 
 # --- single instance: a second click on the icon closes the open panel -----------------------
@@ -63,131 +42,20 @@ def close_running():
         return False
 
 
-# --- monitors -------------------------------------------------------------------------------
-class Mon:
-    def __init__(self, m):
-        self.name, self.desc = m["name"], m["description"]
-        self.w, self.h, self.rr = m["width"], m["height"], m["refreshRate"]
-        self.x, self.y, self.scale = m["x"], m["y"], m["scale"]
-        self.transform = m["transform"]
-        # refresh rates this monitor offers at its current resolution, e.g. "2560x1440@120.00Hz"
-        res = f"{self.w}x{self.h}@"
-        self.rates = sorted({float(md[len(res):].rstrip("Hz")) for md in m.get("availableModes", [])
-                             if md.startswith(res)} or {self.rr}, reverse=True)
-        self.rr = min(self.rates, key=lambda r: abs(r - self.rr))  # 119.999 → the 120.00 mode
-
-    @property
-    def lw(self):  # logical size (rotated outputs swap)
-        return round((self.h if self.transform % 2 else self.w) / self.scale)
-
-    @property
-    def lh(self):
-        return round((self.w if self.transform % 2 else self.h) / self.scale)
-
-    def scales(self):
-        ok = [s for s in SCALES if abs(self.w / s - round(self.w / s)) < 0.01
-              and abs(self.h / s - round(self.h / s)) < 0.01]
-        if not any(abs(s - self.scale) < 0.001 for s in ok):
-            ok.append(self.scale)
-        return sorted(ok)
-
-    def rule(self):
-        """One hl.monitor() call (Lua config); also what displays.lua stores, one per line."""
-        q = json.dumps  # a JSON string is a valid Lua string literal
-        r = (f"hl.monitor({{ output = {q('desc:' + self.desc)}, mode = {q(f'{self.w}x{self.h}@{self.rr:.2f}')}, "
-             f"position = {q(f'{self.x}x{self.y}')}, scale = {self.scale:.6g}")
-        return r + (f", transform = {self.transform} }})" if self.transform else " })")
-
-    def snapshot(self):
-        return (self.x, self.y, self.scale, self.rr)
-
-
-def read_monitors():
-    return [Mon(m) for m in json.loads(sh("hyprctl", "-j", "monitors") or "[]") if not m.get("disabled")]
-
-
-def overlaps(a, ax, ay, b):
-    return ax < b.x + b.lw and b.x < ax + a.lw and ay < b.y + b.lh and b.y < ay + a.lh
-
-
-def snap(m, mons):
-    """Move m to the closest spot touching another monitor edge-to-edge without overlapping."""
-    others = [o for o in mons if o is not m]
-    if not others:
-        m.x = m.y = 0
-        return
-    th = 0.08 * max(m.lw, m.lh)  # align edges when this close
-    best = None
-    for o in others:
-        for side in ("left", "right", "above", "below"):
-            if side in ("left", "right"):
-                x = o.x - m.lw if side == "left" else o.x + o.lw
-                y = min(max(m.y, o.y - m.lh + 1), o.y + o.lh - 1)
-                for a in (o.y, o.y + o.lh - m.lh):  # align tops / bottoms
-                    if abs(y - a) < th:
-                        y = a
-            else:
-                y = o.y - m.lh if side == "above" else o.y + o.lh
-                x = min(max(m.x, o.x - m.lw + 1), o.x + o.lw - 1)
-                for a in (o.x, o.x + o.lw - m.lw):  # align left / right edges
-                    if abs(x - a) < th:
-                        x = a
-            if any(overlaps(m, x, y, p) for p in others):
-                continue
-            d = (x - m.x) ** 2 + (y - m.y) ** 2
-            if best is None or d < best[0]:
-                best = (d, x, y)
-    if best:
-        m.x, m.y = round(best[1]), round(best[2])
-
-
-def normalise(mons):
-    if mons:
-        dx, dy = min(m.x for m in mons), min(m.y for m in mons)
-        for m in mons:
-            m.x, m.y = m.x - dx, m.y - dy
-
-
-def apply(mons):
-    return sh("hyprctl", "eval", "\n".join(m.rule() for m in mons)).strip() == "ok"
-
-
-def save(mons):
-    """Rewrite our lines; keep lines for monitors that aren't connected right now."""
-    descs = {m.desc for m in mons}
-    kept = []
+def right_margin():
+    """Centre the panel under the pointer on the focused monitor, like fw-menu-anchor."""
     try:
-        for line in open(SAVED):
-            s = line.strip()
-            d = re.search(r'output = "desc:((?:[^"\\]|\\.)*)"', s) if s.startswith("hl.monitor(") else None
-            if d:
-                if json.loads(f'"{d.group(1)}"') not in descs:
-                    kept.append(s)
-    except OSError:
-        pass
-    with open(SAVED, "w") as f:
-        f.write("-- Written by fw-display-panel (bar display icon → Apply → Keep).\n"
-                "-- One line per monitor, matched by description. Delete a line to return it to the default.\n")
-        for line in kept + [m.rule() for m in mons]:
-            f.write(line + "\n")
+        cx = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True, text=True).stdout)["x"]
+        m = next(m for m in hj("monitors") if m["focused"])
+        return max(0, int(m["x"] + m["width"] / m["scale"] - cx - PANEL_W / 2))
+    except (ValueError, KeyError, StopIteration):
+        return 0
 
 
-# --- brightness -----------------------------------------------------------------------------
-def has_backlight():
-    return os.path.isdir("/sys/class/backlight") and bool(os.listdir("/sys/class/backlight"))
-
-
-def get_brightness():
-    try:
-        return int(sh("brightnessctl", "-m").split(",")[3].rstrip("%"))
-    except (IndexError, ValueError):
-        return 50
-
-
-# --- UI ---------------------------------------------------------------------------------------
 class Panel(Gtk.Window):
     def __init__(self, at_bar):
         super().__init__()
+        self.get_style_context().add_class("panel")
         self.set_size_request(PANEL_W, -1)
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "fw-display-panel")
@@ -196,246 +64,16 @@ class Panel(Gtk.Window):
         if at_bar:
             GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
             GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
-            GtkLayerShell.set_margin(self, GtkLayerShell.Edge.RIGHT, self.right_margin())
+            GtkLayerShell.set_margin(self, GtkLayerShell.Edge.RIGHT, right_margin())
         self.connect("key-press-event", lambda _w, e: e.keyval == Gdk.KEY_Escape and Gtk.main_quit())
-
-        self.mons = read_monitors()
-        self.before = None   # snapshots while waiting for Keep
-        self.drag = None     # (monitor, grab offset x, y in logical px)
-        self.view = None     # (factor, offset x, offset y) canvas mapping, fixed during a drag
-        self.pending = None  # brightness debounce
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         for side in ("top", "bottom", "start", "end"):
             getattr(box, f"set_margin_{side}")(14)
+        box.pack_start(ui_theme.label("Display", "title"), False, False, 0)
+        self.editor = DisplayEditor()
+        box.pack_start(self.editor, False, False, 0)
         self.add(box)
-
-        title = Gtk.Label(label="Display", xalign=0)
-        title.get_style_context().add_class("title")
-        box.pack_start(title, False, False, 0)
-
-        if has_backlight():
-            row = Gtk.Box(spacing=10)
-            row.pack_start(Gtk.Label(label=""), False, False, 0)
-            self.bright = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
-            self.bright.set_draw_value(False)
-            self.bright.set_value(get_brightness())
-            self.pct = Gtk.Label(label=f"{int(self.bright.get_value())}%", width_chars=4, xalign=1)
-            self.bright.connect("value-changed", self.on_brightness)
-            row.pack_start(self.bright, True, True, 0)
-            row.pack_start(self.pct, False, False, 0)
-            box.pack_start(row, False, False, 0)
-
-        self.canvas = Gtk.DrawingArea()
-        self.canvas.set_size_request(-1, CANVAS_H)
-        self.canvas.add_events(Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.BUTTON_RELEASE_MASK
-                               | Gdk.EventMask.POINTER_MOTION_MASK)
-        self.canvas.connect("draw", self.on_draw)
-        self.canvas.connect("button-press-event", self.on_press)
-        self.canvas.connect("motion-notify-event", self.on_motion)
-        self.canvas.connect("button-release-event", self.on_release)
-        box.pack_start(self.canvas, False, False, 0)
-        hint = Gtk.Label(label="Drag a screen to move it", xalign=0.5)
-        hint.get_style_context().add_class("dim")
-        box.pack_start(hint, False, False, 0)
-
-        self.rows = Gtk.Grid(column_spacing=10, row_spacing=6)
-        box.pack_start(self.rows, False, False, 0)
-        self.build_rows()
-
-        self.buttons = Gtk.Box(spacing=8)
-        self.revert_btn = Gtk.Button(label="Revert")
-        self.revert_btn.connect("clicked", self.on_revert)
-        self.apply_btn = Gtk.Button(label="Apply")
-        self.apply_btn.get_style_context().add_class("primary")
-        self.apply_btn.connect("clicked", self.on_apply)
-        self.ask = Gtk.Label(label="Keep these display settings?", xalign=0)
-        self.buttons.pack_start(self.ask, True, True, 0)
-        self.buttons.pack_end(self.apply_btn, False, False, 0)
-        self.buttons.pack_end(self.revert_btn, False, False, 0)
-        box.pack_start(self.buttons, False, False, 0)
-        self.set_dirty(False)
-
-    # placement: centre the panel under the pointer on the focused monitor, like fw-menu-anchor
-    @staticmethod
-    def right_margin():
-        try:
-            cx = json.loads(sh("hyprctl", "-j", "cursorpos"))["x"]
-            m = next(m for m in json.loads(sh("hyprctl", "-j", "monitors")) if m["focused"])
-            right = m["x"] + m["width"] / m["scale"]
-            return max(0, int(right - cx - PANEL_W / 2))
-        except (ValueError, KeyError, StopIteration):
-            return 0
-
-    def build_rows(self):
-        for child in self.rows.get_children():
-            self.rows.remove(child)
-        for i, m in enumerate(self.mons):
-            name = Gtk.Label(label=m.name, xalign=0)
-            desc = Gtk.Label(label=m.desc, xalign=0, ellipsize=Pango.EllipsizeMode.END, max_width_chars=16)
-            desc.get_style_context().add_class("dim")
-            hz = Gtk.ComboBoxText()
-            for r in m.rates:
-                hz.append(f"{r:.3f}", f"{r:.2f}".rstrip("0").rstrip(".") + " Hz")
-            hz.set_active_id(f"{m.rr:.3f}")
-            hz.connect("changed", self.on_rate, m)
-            combo = Gtk.ComboBoxText()
-            for s in m.scales():
-                combo.append(f"{s:.6f}", f"{s:.2f}".rstrip("0").rstrip(".") + "×")
-            combo.set_active_id(next(f"{s:.6f}" for s in m.scales() if abs(s - m.scale) < 0.001))
-            combo.connect("changed", self.on_scale, m)
-            self.rows.attach(name, 0, i, 1, 1)
-            self.rows.attach(desc, 1, i, 1, 1)
-            desc.set_hexpand(True)
-            self.rows.attach(hz, 2, i, 1, 1)
-            self.rows.attach(combo, 3, i, 1, 1)
-        self.rows.show_all()
-
-    def set_dirty(self, dirty):
-        self.dirty = dirty
-        self.apply_btn.set_sensitive(dirty)
-        self.revert_btn.set_sensitive(dirty)
-
-    # brightness
-    def on_brightness(self, scale):
-        self.pct.set_text(f"{int(scale.get_value())}%")
-        if self.pending:
-            GLib.source_remove(self.pending)
-        self.pending = GLib.timeout_add(50, self.set_brightness)
-
-    def set_brightness(self):
-        self.pending = None
-        subprocess.Popen(["brightnessctl", "-q", "set", f"{int(self.bright.get_value())}%"])
-        return False
-
-    # canvas
-    def mapping(self):
-        if self.drag and self.view:
-            return self.view
-        a = self.canvas.get_allocation()
-        bw = max(m.x + m.lw for m in self.mons) - min(m.x for m in self.mons)
-        bh = max(m.y + m.lh for m in self.mons) - min(m.y for m in self.mons)
-        f = min((a.width - 40) / bw, (a.height - 20) / bh)
-        ox = (a.width - bw * f) / 2 - min(m.x for m in self.mons) * f
-        oy = (a.height - bh * f) / 2 - min(m.y for m in self.mons) * f
-        self.view = (f, ox, oy)
-        return self.view
-
-    def on_draw(self, _w, cr):
-        if not self.mons:
-            return
-        f, ox, oy = self.mapping()
-        for m in self.mons:
-            x, y, w, h = ox + m.x * f, oy + m.y * f, m.lw * f, m.lh * f
-            active = self.drag and self.drag[0] is m
-            cr.set_source_rgb(*((0.231, 0.259, 0.380) if active else (0.161, 0.180, 0.259)))
-            cr.rectangle(x + 1, y + 1, w - 2, h - 2)
-            cr.fill_preserve()
-            cr.set_source_rgb(*((0.478, 0.635, 0.969) if active else (0.337, 0.373, 0.537)))
-            cr.set_line_width(2)
-            cr.stroke()
-            cr.set_source_rgb(0.753, 0.792, 0.961)
-            cr.select_font_face("JetBrains Mono")
-            cr.set_font_size(12)
-            for i, text in enumerate((m.name, f"{m.scale:.2f}".rstrip("0").rstrip(".") + "×")):
-                ext = cr.text_extents(text)
-                cr.move_to(x + (w - ext.width) / 2, y + h / 2 - 4 + i * 16)
-                cr.show_text(text)
-
-    def hit(self, ex, ey):
-        f, ox, oy = self.mapping()
-        lx, ly = (ex - ox) / f, (ey - oy) / f
-        for m in reversed(self.mons):
-            if m.x <= lx <= m.x + m.lw and m.y <= ly <= m.y + m.lh:
-                return m, lx - m.x, ly - m.y
-        return None
-
-    def on_press(self, _w, e):
-        if self.before is None and len(self.mons) > 1:
-            self.drag = self.hit(e.x, e.y)
-            self.canvas.queue_draw()
-
-    def on_motion(self, _w, e):
-        if self.drag:
-            m, gx, gy = self.drag
-            f, ox, oy = self.view
-            m.x, m.y = (e.x - ox) / f - gx, (e.y - oy) / f - gy
-            self.canvas.queue_draw()
-
-    def on_release(self, _w, _e):
-        if self.drag:
-            m = self.drag[0]
-            self.drag = None
-            snap(m, self.mons)
-            normalise(self.mons)
-            self.set_dirty(True)
-            self.canvas.queue_draw()
-
-    def on_rate(self, combo, m):
-        m.rr = float(combo.get_active_id())
-        self.set_dirty(True)
-
-    def on_scale(self, combo, m):
-        m.scale = float(combo.get_active_id())
-        snap(m, self.mons)
-        normalise(self.mons)
-        self.set_dirty(True)
-        self.canvas.queue_draw()
-
-    # apply / keep / revert
-    def on_apply(self, _b):
-        if self.before is not None:  # the button reads "Keep (n)" while waiting
-            self.keep()
-            return
-        current = {m.desc: m for m in read_monitors()}
-        self.before = {m.desc: current[m.desc].snapshot() for m in self.mons if m.desc in current}
-        if not apply(self.mons):
-            self.restore()
-            return
-        self.countdown = KEEP_SECONDS
-        self.ask.show()
-        self.apply_btn.set_label(f"Keep ({self.countdown})")
-        self.revert_btn.set_sensitive(True)
-        GLib.timeout_add_seconds(1, self.tick)
-
-    def tick(self):
-        if self.before is None:
-            return False
-        self.countdown -= 1
-        if self.countdown <= 0:
-            self.restore()
-            return False
-        self.apply_btn.set_label(f"Keep ({self.countdown})")
-        return True
-
-    def keep(self):
-        self.before = None
-        save(self.mons)
-        self.ask.hide()
-        self.apply_btn.set_label("Apply")
-        self.set_dirty(False)
-
-    def restore(self):
-        """Back to what Hyprland had before Apply."""
-        for m in self.mons:
-            if self.before and m.desc in self.before:
-                m.x, m.y, m.scale, m.rr = self.before[m.desc]
-        if self.before:
-            apply(self.mons)
-        self.before = None
-        self.mons = read_monitors()
-        self.build_rows()
-        self.ask.hide()
-        self.apply_btn.set_label("Apply")
-        self.set_dirty(False)
-        self.canvas.queue_draw()
-
-    def on_revert(self, _b):
-        self.restore()
-
-    def present_panel(self):
-        self.show_all()
-        self.ask.hide()
 
 
 def main():
@@ -446,10 +84,7 @@ def main():
     with open(PIDFILE, "w") as f:
         f.write(str(os.getpid()))
 
-    css = Gtk.CssProvider()
-    css.load_from_data(CSS)
-    Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css,
-                                             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    ui_theme.install()
     panel = Panel(at_bar)
     panel.connect("destroy", Gtk.main_quit)
     try:  # GLibUnix is the newer home of unix_signal_add
@@ -457,12 +92,12 @@ def main():
         GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
     except ImportError:
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
-    panel.present_panel()
+    panel.show_all()
     try:
         Gtk.main()
     finally:
-        if panel.before is not None:  # closed while asking: don't keep an unconfirmed layout
-            panel.restore()
+        if panel.editor.unconfirmed():  # closed while asking: don't keep an unconfirmed layout
+            panel.editor.restore()
         try:
             if open(PIDFILE).read() == str(os.getpid()):
                 os.remove(PIDFILE)

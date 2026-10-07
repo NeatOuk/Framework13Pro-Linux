@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
-# Super+Ctrl+N
+# SUPER+N. Temperature from Settings → Display (~/.config/fw13/settings.json), default 4000 K.
+t="$(python3 -c 'import sys,os; sys.path.insert(0, os.path.expanduser("~/.local/lib")); from fw13 import store; print(store.get("nightlight_temp"))' 2>/dev/null || echo 4000)"
 if pgrep -x hyprsunset >/dev/null; then pkill -x hyprsunset; fw-notify "Night light" "Off"
-else uwsm app -- hyprsunset -t 4000 & fw-notify "Night light" "On (4000K)"; fi
+else uwsm app -- hyprsunset -t "$t" & fw-notify "Night light" "On (${t}K)"; fi

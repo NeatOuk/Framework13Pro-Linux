@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Settings
+Comment=Network, Bluetooth, Sound, Display, Power, Appearance, Input, System
+Icon=preferences-system
+Exec=fw-settings
+Terminal=false
+Type=Application
+Categories=Settings;
+Keywords=Preferences;Settings;Control Center;
+StartupWMClass=fw-settings

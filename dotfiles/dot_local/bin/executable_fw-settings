@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Settings — fw13-hypr's own settings app (flat Tokyo Night, GTK3). Tiles like any app (no window rule).
+
+  fw-settings [page]          open (or focus the open window) at a page: network bluetooth sound display
+                              power appearance input system
+  fw-settings --toggle [page] bar sliders icon: close it if it's open and focused, else open/focus
+
+Single instance via Gtk.Application (D-Bus id land.fw13.Settings): a second call just forwards its arguments.
+Pages live in ~/.local/lib/fw13/pages; backends in ~/.local/lib/fw13 (shared with the bar panels).
+"""
+import importlib
+import os
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+from fw13 import ui_theme  # noqa: E402
+from fw13.pages import PAGES  # noqa: E402
+
+
+class SettingsWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Settings")
+        self.set_default_size(980, 680)
+        self.pages = {}
+
+        root = Gtk.Box()
+        self.sidebar = Gtk.ListBox()
+        self.sidebar.get_style_context().add_class("sidebar")
+        self.sidebar.set_size_request(200, -1)
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.NONE)
+        for pid, icon, title, _mod in PAGES:
+            row = Gtk.ListBoxRow()
+            row.page_id = pid
+            row.add(ui_theme.label(f"{icon}   {title}"))
+            self.sidebar.add(row)
+        self.sidebar.connect("row-selected", lambda _l, row: row and self.show_page(row.page_id))
+        root.pack_start(self.sidebar, False, False, 0)
+        root.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
+        root.pack_start(self.stack, True, True, 0)
+        self.add(root)
+        self.connect("key-press-event", lambda _w, e: e.keyval == Gdk.KEY_Escape and self.close())
+        self.connect("delete-event", self.on_close)
+
+    def show_page(self, pid):
+        if pid not in self.pages:  # build lazily: a slow page doesn't delay opening Settings
+            mod = next(m for p, _i, _t, m in PAGES if p == pid)
+            page = importlib.import_module(f"fw13.pages.{mod}").build()
+            self.pages[pid] = page
+            self.stack.add_named(page, pid)
+            page.show_all()
+        else:
+            self.pages[pid].refresh()
+        self.stack.set_visible_child_name(pid)
+        row = next(r for r in self.sidebar.get_children() if r.page_id == pid)
+        if self.sidebar.get_selected_row() is not row:
+            self.sidebar.select_row(row)
+
+    def on_close(self, *_):
+        for page in self.pages.values():
+            if hasattr(page, "closing"):
+                page.closing()  # e.g. Display reverts an unconfirmed layout
+        return False
+
+
+class SettingsApp(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="land.fw13.Settings",
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self.win = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        ui_theme.install()
+
+    def do_command_line(self, cmdline):
+        args = [a for a in cmdline.get_arguments()[1:]]
+        toggle = "--toggle" in args
+        args = [a for a in args if not a.startswith("--")]
+        page = args[0] if args and args[0] in {p for p, *_ in PAGES} else None
+        if toggle and self.win and self.win.is_active():
+            self.win.close()
+            return 0
+        if not self.win:
+            self.win = SettingsWindow(self)
+            self.win.connect("destroy", lambda _w: setattr(self, "win", None))
+            self.win.show_all()
+            page = page or "network"
+        if page:
+            self.win.show_page(page)
+        self.win.present_with_time(GLib.get_monotonic_time() // 1000)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(SettingsApp().run(sys.argv))

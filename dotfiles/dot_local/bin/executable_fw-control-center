@@ -17,9 +17,10 @@ menu() { fuzzel --dmenu "${pos[@]}" --prompt "$1 › " --lines "${2:-8}"; }
 volume() {
   local cur pick
   cur="$(wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf "%d%%%s", int($2 * 100 + 0.5), ($3 ? " muted" : "")}')"
-  pick="$(printf '%s\n' "Mute on/off" 100% 75% 50% 25% "Advanced…" | menu "Volume $cur" 6)" || return 0
+  pick="$(printf '%s\n' "Mute on/off" 100% 75% 50% 25% "Settings…" "Advanced…" | menu "Volume $cur" 7)" || return 0
   case $pick in
     Mute*) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+    Sett*) fw-settings sound ;;
     Adv*)  uwsm app -- pavucontrol ;;
     *)     wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "$pick" ;;
   esac
@@ -35,11 +36,11 @@ wifi() {
   nets="$(nmcli -t -e no -f IN-USE,SIGNAL,SSID dev wifi list --rescan no 2>/dev/null \
     | awk -F: '{ s = substr($0, length($1) + length($2) + 3) } s != "" && !seen[s]++ {
         printf "%s %3s%%  %s\n", ($1 == "*" ? "●" : " "), $2, s }')"
-  pick="$(printf '%s\n%s\n%s' "$toggle" "Advanced…" "$nets" | sed '/^$/d' | menu Wi-Fi 12)" || return 0
+  pick="$(printf '%s\n%s\n%s' "$toggle" "Settings…" "$nets" | sed '/^$/d' | menu Wi-Fi 12)" || return 0
   case $pick in
     "Turn Wi-Fi off") nmcli radio wifi off; return ;;
     "Turn Wi-Fi on")  nmcli radio wifi on; return ;;
-    Adv*)             uwsm app -- nm-connection-editor; return ;;
+    Sett*)            fw-settings network; return ;;
   esac
   ssid="${pick#*%  }"  # strip "● 87%  "
   if nmcli -g NAME connection show | grep -Fxq -- "$ssid"; then
@@ -57,9 +58,10 @@ wifi() {
 bluetooth() {
   local power pick
   power="$(bluetoothctl show | awk '/Powered:/ {print $2; exit}')"
-  pick="$(printf '%s\n' "Turn $([[ $power == yes ]] && echo off || echo on)" "Devices…" | menu Bluetooth 2)" || return 0
+  pick="$(printf '%s\n' "Turn $([[ $power == yes ]] && echo off || echo on)" "Settings…" "Devices…" | menu Bluetooth 3)" || return 0
   case $pick in
     Turn*) bluetoothctl power "${pick#Turn }" >/dev/null ;;
+    Sett*) fw-settings bluetooth ;;
     Dev*)  uwsm app -- blueman-manager ;;
   esac
 }
