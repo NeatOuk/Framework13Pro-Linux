@@ -1,0 +1,7 @@
+# Sourced (shell) by uwsm for the Hyprland session only, exported to systemd --user and unset again when the
+# session stops, so GNOME/KDE sessions on the same account keep their own Qt platform theme (KDE's in Plasma).
+# Hyprland-only settings go here; environment.d/ is read by every session.
+#
+# Qt apps use qt6ct, which reads ~/.config/qt6ct/qt6ct.conf → the fw13 palette (~/.config/fw13/theme/qt6ct-colors.conf,
+# Settings → Appearance). Read by Qt at app start; a change to this line needs a re-login.
+export QT_QPA_PLATFORMTHEME=qt6ct

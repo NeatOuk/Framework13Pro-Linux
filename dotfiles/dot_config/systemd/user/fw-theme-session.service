@@ -1,0 +1,16 @@
+[Unit]
+Description=fw13 GTK theme for the Hyprland session (set at login, handed back to other desktops at logout)
+# fw13.theme session-start/session-end: gtk-theme/color-scheme and ~/.config/gtk-4.0/gtk.css are per user, so
+# they are set only inside Hyprland (both steps check HYPRLAND_INSTANCE_SIGNATURE) and restored at logout.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PYTHONPATH=%h/.local/lib
+ExecStart=/usr/bin/python3 -m fw13.theme session-start
+ExecStop=/usr/bin/python3 -m fw13.theme session-end
+
+[Install]
+WantedBy=graphical-session.target

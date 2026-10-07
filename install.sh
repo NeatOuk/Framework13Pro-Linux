@@ -107,7 +107,7 @@ system_phase() {
   $SUDO install -m 0644 repos/*.repo /etc/yum.repos.d/
 
   say "Packages (weak dependencies off — only what's listed)"
-  local lists=(00-core.txt 10-desktop.txt 20-input-fonts.txt 30-apps.txt 60-framework.txt 70-dev.txt 80-shells.txt 90-backup.txt 95-citadel.txt)
+  local lists=(00-core.txt 10-desktop.txt 20-input-fonts.txt 30-apps.txt 60-framework.txt 70-dev.txt 80-shells.txt 90-backup.txt 95-citadel.txt 96-theme.txt)
   has_dm  || lists+=(15-login.txt)
   has_ppd || lists+=(61-power.txt)
   local main gaming codecs

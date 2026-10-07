@@ -4,6 +4,24 @@ The base configs (hypr theme.lua, hyprlock.conf, waybar style.css, fuzzel.ini, m
 they include the files this module writes into ~/.config/fw13/theme/. chezmoi seeds those once (create_) with
 render(TOKYO_NIGHT), so a fresh install looks the same as before.
 
+GTK and Qt apps follow too (read at app start; GTK 3 also live, see apply_gtk()):
+  gtk3.css / gtk4.css   libadwaita named colours (@define-color; gtk4.css also the --*-color variables). GTK 3 and
+                        plain GTK 4 apps get them through the "fw13" GTK theme in ~/.local/share/themes/fw13, which
+                        is adw-gtk3[-dark] plus gtk3.css/gtk4.css; libadwaita apps ignore GTK themes and read
+                        ~/.config/gtk-4.0/gtk.css, which @imports gtk4.css (only when that file is ours, see
+                        link_gtk()).
+  qt6ct-colors.conf     qt6ct colour scheme; ~/.config/qt6ct/qt6ct.conf points at it and ~/.config/uwsm/env-hyprland
+                        sets QT_QPA_PLATFORMTHEME=qt6ct for the Hyprland session only (new Qt apps after re-login).
+These three are not chezmoi seeds: ensure_files() (init(), run_once) writes them from the current palette, so an
+upgrade of a wallpaper-following install does not start out with Tokyo Night GTK/Qt colours.
+
+Other desktops on the same account (Fedora Workstation/KDE bases, CLAUDE.md 3a): gtk-theme and color-scheme
+(org.gnome.desktop.interface, dconf) and ~/.config/gtk-4.0/gtk.css are per user, not per session. So they are only
+set from a Hyprland session, the values they replace are saved first (store key GTK_SAVED), and session_end() /
+restore_gtk() put them back and remove our gtk-4.0/gtk.css; session_start() re-applies at the next Hyprland login
+(`python3 -m fw13.theme session-start|session-end`). Until a session_end() runs (e.g. after a crash), GNOME shows
+the fw13 GTK theme and our light/dark choice; KDE resets gtk-theme itself at Plasma login.
+
 State lives in fw13.store under "theme":
   {"source": "tokyo-night" | "wallpaper", "mode": "dark" | "light", "type": "scheme-tonal-spot",
    "wallpaper": path, "palette": {...last generated}}
@@ -15,6 +33,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 from . import store
 from .hypr import lua
@@ -111,6 +130,21 @@ def _harmonize(c, toward, limit=15.0):
 def _hue_near(c, hue, tol):
     h, s, _ = _hsl(c)
     return s > 0.2 and abs((h - hue + 180) % 360 - 180) <= tol
+
+
+def _dark(p):
+    return _lum(p["bg"]) < 0.18
+
+
+def _on(c, p):
+    """Text colour for a fill of `c`: the palette's bg or fg_bright, whichever reads better."""
+    return max((p["bg"], p["fg_bright"]), key=lambda t: contrast(t, c))
+
+
+def _shade(c, d):
+    """`c` with its HSL lightness moved by `d` (-1..1)."""
+    h, s, li = _hsl(c)
+    return _from_hsl(h, s, min(max(li + d, 0.0), 1.0))
 
 
 # ---- matugen ------------------------------------------------------------------------------------------------
@@ -241,6 +275,80 @@ def _hypr_values(p):
 HEAD = "Written by fw13.theme (Settings → Appearance). Changes here are replaced."
 
 
+def _gtk_colors(p):
+    """libadwaita / adw-gtk3 named colours for palette `p` (same roles as fw-settings' own ui_theme)."""
+    dark = _dark(p)
+
+    def text(c):  # standalone coloured text (links, warning labels) on window and view backgrounds
+        return ensure(ensure(c, p["bg"], 4.5), p["bg_dim"], 4.5)
+    raised = p["surface2"] if dark else p["bg_dim"]  # popovers/dialogs: lighter than the window in both modes
+    c = {}
+    for name, role in (("accent", "accent"), ("destructive", "bad"), ("success", "ok"), ("warning", "warn"),
+                       ("error", "bad")):
+        c[f"{name}_bg_color"] = p[role]
+        c[f"{name}_fg_color"] = _on(p[role], p)
+        c[f"{name}_color"] = text(p[role])
+    c.update({
+        "window_bg_color": p["bg"], "window_fg_color": p["fg"],
+        "view_bg_color": p["bg_dim"], "view_fg_color": p["fg_bright"],
+        "headerbar_bg_color": p["surface"], "headerbar_fg_color": p["fg_bright"],
+        "headerbar_border_color": p["fg_bright"], "headerbar_backdrop_color": p["bg"],
+        "sidebar_bg_color": p["bg_dim"], "sidebar_fg_color": p["fg"],
+        "sidebar_backdrop_color": p["bg_dim"], "sidebar_border_color": p["surface2"],
+        "secondary_sidebar_bg_color": p["bg"], "secondary_sidebar_fg_color": p["fg"],
+        "secondary_sidebar_backdrop_color": p["bg"], "secondary_sidebar_border_color": p["surface2"],
+        "card_bg_color": p["surface"] if dark else p["bg_dim"], "card_fg_color": p["fg_bright"],
+        "popover_bg_color": raised, "popover_fg_color": p["fg_bright"],
+        "dialog_bg_color": raised, "dialog_fg_color": p["fg_bright"],
+        "thumbnail_bg_color": raised, "thumbnail_fg_color": p["fg_bright"],
+        "borders": p["surface3"], "unfocused_borders": p["surface2"],
+    })
+    return {k: v[:7] for k, v in c.items()}
+
+
+def _gtk_css(p, variables):
+    lines = [f"/* {HEAD} */"] + [f"@define-color {k} {v};" for k, v in _gtk_colors(p).items()]
+    if variables:  # libadwaita >= 1.6 styles with CSS variables; the named colours above are only aliases there
+        lines += [":root {"] + [f"  --{k.replace('_', '-')}: {v};" for k, v in _gtk_colors(p).items()
+                                if k.endswith("_color")] + ["}"]
+    return "\n".join(lines) + "\n"
+
+
+# QPalette::ColorRole order, as in qt6ct's colour schemes (/usr/share/qt6ct/colors/*.conf): 21 entries per line.
+QT_ROLES = ("WindowText", "Button", "Light", "Midlight", "Dark", "Mid", "Text", "BrightText", "ButtonText",
+            "Base", "Window", "Shadow", "Highlight", "HighlightedText", "Link", "LinkVisited", "AlternateBase",
+            "NoRole", "ToolTipBase", "ToolTipText", "PlaceholderText")
+
+
+def _qt_scheme(p):
+    """qt6ct colour scheme text. Window/WindowText/Base/Highlight (what Citadel and most Qt apps paint with)
+    are bg/fg/surface/accent; Light..Mid are bevel shades of Button for the Fusion style."""
+    dark = _dark(p)
+    button = p["surface2"]
+    active = {
+        "WindowText": p["fg"], "Button": button,
+        "Light": _shade(button, 0.15), "Midlight": _shade(button, 0.07),
+        "Dark": _shade(button, -0.15), "Mid": _shade(button, -0.07),
+        "Text": p["fg_bright"], "BrightText": p["fg_bright"] if dark else p["bg_dim"], "ButtonText": p["fg_bright"],
+        "Base": p["surface"], "Window": p["bg"], "Shadow": "#000000",
+        "Highlight": p["accent"], "HighlightedText": _on(p["accent"], p),
+        "Link": ensure(p["accent"], p["surface"], 4.5), "LinkVisited": ensure(p["accent2"], p["surface"], 4.5),
+        "AlternateBase": p["surface2"], "NoRole": p["bg"],
+        "ToolTipBase": p["surface2"], "ToolTipText": p["fg_bright"], "PlaceholderText": p["fg_dim"],
+    }
+    disabled = dict(active)
+    for role in ("WindowText", "Text", "ButtonText", "HighlightedText", "BrightText"):
+        disabled[role] = p["fg_dim"]
+    disabled["Highlight"] = p["surface3"]
+
+    def line(colors):
+        return ", ".join("#ff" + _h(colors[r]) for r in QT_ROLES)
+    return (f"; {HEAD}\n[ColorScheme]\n"
+            f"active_colors={line(active)}\n"
+            f"disabled_colors={line(disabled)}\n"
+            f"inactive_colors={line(active)}\n")
+
+
 def render(p):
     """{filename in ~/.config/fw13/theme: text} for palette `p`."""
     v = _hypr_values(p)
@@ -283,7 +391,112 @@ def render(p):
                 f"$fw_fail = rgba({_a(p['bad'])})\n"
                 f"$fw_clock = rgba({_a(p['fg'])})\n")
     return {"hypr.lua": hypr, "waybar.css": waybar, "fuzzel.ini": fuzzel, "mako": mako,
-            "kitty.conf": "\n".join(kitty) + "\n", "hyprlock.conf": hyprlock}
+            "kitty.conf": "\n".join(kitty) + "\n", "hyprlock.conf": hyprlock,
+            "gtk3.css": _gtk_css(p, variables=False), "gtk4.css": _gtk_css(p, variables=True),
+            "qt6ct-colors.conf": _qt_scheme(p)}
+
+
+# ---- GTK theme + user gtk.css -------------------------------------------------------------------------------
+
+GTK_THEME = "fw13"
+GTK_THEME_DIR = os.path.expanduser("~/.local/share/themes/" + GTK_THEME)
+GTK_MARK = "/* fw13: written by fw13.theme. Delete this line to keep your own copy of this file. */"
+SYSTEM_THEMES = "/usr/share/themes"  # adw-gtk3 / adw-gtk3-dark (adw-gtk3-theme, packages/96-theme.txt)
+GTK_SAVED = "theme_gtk_saved"  # fw13.store key: the gtk-theme / color-scheme apply_gtk() replaced
+
+
+def _in_hyprland():
+    return bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"))
+
+
+def gtk_base(p):
+    """The adw-gtk3 variant the fw13 GTK theme is built on, by the palette's lightness."""
+    return "adw-gtk3-dark" if _dark(p) else "adw-gtk3"
+
+
+def gtk_base_installed(p):
+    """True if the base theme for `p` is installed. Without it the fw13 theme's @import fails and GTK 3 apps
+    would lose all widget styling, so apply_gtk() never selects fw13 then."""
+    return os.path.isfile(os.path.join(SYSTEM_THEMES, gtk_base(p), "gtk-3.0", "gtk.css"))
+
+
+def render_gtk_theme(p):
+    """{path in GTK_THEME_DIR: text}: the "fw13" GTK theme, adw-gtk3[-dark] (by the palette's lightness) with
+    our colours on top. It is a theme rather than ~/.config/gtk-3.0/gtk.css because GTK 3 loads the user gtk.css
+    once per process, while a theme is re-parsed (with its @imports) whenever gtk-theme changes."""
+    base = gtk_base(p)
+    out = {"index.theme": f"# {HEAD}\n[Desktop Entry]\nType=X-GNOME-Metatheme\nName={GTK_THEME}\n"
+                          f"Comment=adw-gtk3 with the fw13 palette (~/.config/fw13/theme)\n\n"
+                          f"[X-GNOME-Metatheme]\nGtkTheme={GTK_THEME}\n"}
+    for ver, colours in (("gtk-3.0", "gtk3.css"), ("gtk-4.0", "gtk4.css")):
+        css = (f"/* {HEAD} */\n"
+               f'@import url("file://{SYSTEM_THEMES}/{base}/{ver}/gtk.css");\n'
+               f'@import url("file://{os.path.join(DIR, colours)}");\n')
+        # gtk-dark.css is loaded instead when an app asks for a dark variant: same palette either way.
+        out[f"{ver}/gtk.css"] = out[f"{ver}/gtk-dark.css"] = css
+    return out
+
+
+def _user_gtk_css():
+    """~/.config/gtk-4.0/gtk.css (read by every GTK 4 app at start, libadwaita ones included)."""
+    return os.path.expanduser("~/.config/gtk-4.0/gtk.css"), (
+        f"{GTK_MARK}\n/* libadwaita apps ignore GTK themes; this gives them the fw13 palette at start. */\n"
+        f'@import url("file://{os.path.join(DIR, "gtk4.css")}");\n')
+
+
+def _read(path):
+    """File text, None if absent; OSError/UnicodeDecodeError if unreadable."""
+    try:
+        with open(path) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def link_gtk():
+    """Make ~/.config/gtk-4.0/gtk.css @import our gtk4.css, unless the user has their own file there (one
+    without GTK_MARK), which is left alone. Returns None or a short note saying why nothing was written.
+
+    Only from a Hyprland session: the file is read by GTK 4 apps in every session, so installing from GNOME/KDE
+    must not recolour their libadwaita apps (session_start() links it at the next Hyprland login, session_end()
+    removes it). GTK 3 needs no user gtk.css (the fw13 theme carries the colours); one there with colours would
+    even pin them, since GTK 3 never re-reads it."""
+    path, text = _user_gtk_css()
+    if not _in_hyprland():
+        return None
+    try:
+        cur = _read(path)
+    except (OSError, UnicodeDecodeError):
+        return f"{path} is not readable; GTK 4 apps keep their own colours"
+    if cur is not None and GTK_MARK not in cur:
+        return f"{path} is yours, left as is; libadwaita apps keep their colours (@import {DIR}/gtk4.css to opt in)"
+    if cur != text:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _atomic(path, text)
+    return None
+
+
+def unlink_gtk():
+    """Remove ~/.config/gtk-4.0/gtk.css if it is ours (has GTK_MARK)."""
+    path, _ = _user_gtk_css()
+    try:
+        cur = _read(path)
+        if cur is not None and GTK_MARK in cur:
+            os.unlink(path)
+    except (OSError, UnicodeDecodeError):
+        pass
+
+
+def _write_gtk_theme(p, only_missing=False):
+    written = []
+    for rel, text in render_gtk_theme(p).items():
+        path = os.path.join(GTK_THEME_DIR, rel)
+        if only_missing and os.path.isfile(path):
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _atomic(path, text)
+        written.append(os.path.join("themes", GTK_THEME, rel))
+    return written
 
 
 def _atomic(path, text):
@@ -302,17 +515,21 @@ def ensure_files():
     """Write any missing generated file from the current palette (mako refuses to start when its include is
     missing). Existing files are left alone."""
     os.makedirs(DIR, exist_ok=True)
-    missing = {n: t for n, t in render(palette()).items() if not os.path.isfile(os.path.join(DIR, n))}
+    p = palette()
+    missing = {n: t for n, t in render(p).items() if not os.path.isfile(os.path.join(DIR, n))}
     for name, text in missing.items():
         _atomic(os.path.join(DIR, name), text)
-    return sorted(missing)
+    return sorted(missing) + _write_gtk_theme(p, only_missing=True)
 
 
 def write(p, apply=True):
-    """Write every generated file for `p` (atomically), then reload running apps unless apply=False."""
+    """Write every generated file for `p` (atomically), the fw13 GTK theme and (if ours, under Hyprland) the
+    GTK 4 user gtk.css, then reload running apps unless apply=False."""
     os.makedirs(DIR, exist_ok=True)
     for name, text in render(p).items():
         _atomic(os.path.join(DIR, name), text)
+    _write_gtk_theme(p)
+    link_gtk()
     if apply:
         reload(p)
 
@@ -324,10 +541,114 @@ def _quiet(*cmd):
         pass
 
 
+def _gsettings_get(key):
+    try:
+        r = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", key], capture_output=True,
+                           text=True, timeout=5, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout.strip().strip("'") if r.returncode == 0 else None
+
+
+def _gsettings_set(key, value):
+    _quiet("gsettings", "set", "org.gnome.desktop.interface", key, value)
+
+
+def _save_gtk(theme_name, scheme):
+    """Remember the gtk-theme / color-scheme apply_gtk() is about to replace (once: a saved pair is kept until
+    restore_gtk() uses it, so a second apply does not save our own values)."""
+    if theme_name == GTK_THEME or isinstance(store.get(GTK_SAVED), dict):
+        return
+    try:
+        store.set(GTK_SAVED, {"gtk-theme": theme_name, "color-scheme": scheme})
+    except OSError:
+        pass
+
+
+def apply_gtk(p=None, refresh=True):
+    """Point GTK at the fw13 theme and the palette's light/dark (org.gnome.desktop.interface gtk-theme and
+    color-scheme). Under Hyprland GTK 3/4 read these from GSettings (dconf) directly, and libadwaita apps get
+    color-scheme through xdg-desktop-portal-gtk, so no settings.ini is needed (GSettings would override it).
+    Returns None or a short note.
+
+    Only inside a Hyprland session (never in CI or from another desktop). The keys are per user, so GNOME sees
+    them too: the values replaced are saved first (GTK_SAVED) and restore_gtk() puts them back.
+    gtk-theme is set to fw13 only when its adw-gtk3 base is installed (else GTK 3 apps would be unstyled).
+    refresh: if gtk-theme is already fw13, switch it to plain adw-gtk3 and back so running GTK 3 apps re-parse
+    the theme and its @imports; GTK compares names, so setting the same name again does nothing, and the short
+    pause keeps apps from reading both writes as one (they read the key when the change signal arrives).
+    """
+    if not _in_hyprland() or not shutil.which("gsettings"):
+        return None
+    p = p or palette()
+    dark = _dark(p)
+    want = "prefer-dark" if dark else "prefer-light"
+    current = _gsettings_get("gtk-theme")
+    if current is None:
+        return None  # no GSettings schema / dconf: nothing to set
+    scheme = _gsettings_get("color-scheme")
+    _save_gtk(current, scheme)
+    if scheme != want:
+        _gsettings_set("color-scheme", want)
+    if not gtk_base_installed(p):
+        if current == GTK_THEME:  # fw13 without its base is unstyled: back to what was there before
+            saved = store.get(GTK_SAVED)
+            prev = saved.get("gtk-theme") if isinstance(saved, dict) else None
+            _gsettings_set("gtk-theme", prev if prev and prev != GTK_THEME else "Adwaita")
+        return f"{gtk_base(p)} is not installed (adw-gtk3-theme); GTK 3 apps keep their theme"
+    if current == GTK_THEME:
+        if not refresh:
+            return None
+        _gsettings_set("gtk-theme", gtk_base(p))
+        time.sleep(0.4)
+    _gsettings_set("gtk-theme", GTK_THEME)
+    return None
+
+
+def restore_gtk():
+    """Undo apply_gtk() and link_gtk(): put back the saved gtk-theme / color-scheme (gtk-theme only while it is
+    still ours) and remove our ~/.config/gtk-4.0/gtk.css. Safe to call anywhere; a no-op if nothing is saved."""
+    unlink_gtk()
+    saved = store.get(GTK_SAVED)
+    if not isinstance(saved, dict) or not shutil.which("gsettings"):
+        return
+    if _gsettings_get("gtk-theme") == GTK_THEME:
+        prev = saved.get("gtk-theme")
+        if prev and prev != GTK_THEME:
+            _gsettings_set("gtk-theme", prev)
+        else:
+            _quiet("gsettings", "reset", "org.gnome.desktop.interface", "gtk-theme")
+    if saved.get("color-scheme") in ("default", "prefer-dark", "prefer-light"):
+        _gsettings_set("color-scheme", saved["color-scheme"])
+    try:
+        data = store.load()
+        data.pop(GTK_SAVED, None)
+        store.save(data)
+    except OSError:
+        pass
+
+
+def session_start():
+    """At Hyprland login: missing files, the GTK 4 user gtk.css and gtk-theme/color-scheme (another desktop or
+    a session_end() may have reset them). Returns a note or None."""
+    try:
+        ensure_files()
+    except OSError:
+        pass
+    notes = [n for n in (link_gtk(), apply_gtk(refresh=False)) if n]
+    return "; ".join(notes) or None
+
+
+def session_end():
+    """At Hyprland logout: hand the shared GTK settings back to other desktops (restore_gtk())."""
+    restore_gtk()
+
+
 def reload(p=None):
     """Make running apps pick up the files; each step is a no-op when the app isn't running.
 
-    fuzzel and hyprlock read their config at start, so they need nothing.
+    fuzzel and hyprlock read their config at start, so they need nothing. GTK 3 apps recolour through
+    apply_gtk(); GTK 4 (libadwaita) and Qt apps read their colours at start.
     """
     p = p or palette()
     try:
@@ -347,17 +668,20 @@ def reload(p=None):
                 f"decoration = {{ shadow = {{ color = {v['shadow']} }} }} }})")
         except OSError:
             pass
+    apply_gtk(p)
 
 
 def init():
-    """Record Tokyo Night as the source if nothing is stored yet, and put back any missing generated file
-    (chezmoi seeds them; a deleted one would stop mako starting). Reloads nothing, so it is safe without a
-    desktop (install, CI)."""
+    """Record Tokyo Night as the source if nothing is stored yet, put back any missing generated file (chezmoi
+    seeds most of them; gtk3.css/gtk4.css/qt6ct-colors.conf are only written here, from the current palette; a
+    deleted one would stop mako starting) and the fw13 GTK theme, and link the GTK 4 user gtk.css (see
+    link_gtk(); its note is returned). Reloads nothing, so it is safe without a desktop (install, CI)."""
     data = store.load()
     if not isinstance(data.get("theme"), dict):
         data["theme"] = state()
         store.save(data)
     ensure_files()
+    return link_gtk()
 
 
 def set_source(source, mode=None, scheme_type=None, wallpaper=None):
@@ -408,3 +732,16 @@ def set_source(source, mode=None, scheme_type=None, wallpaper=None):
         return f"Could not write the theme files: {e}"
     reload(p)
     return None
+
+
+if __name__ == "__main__":  # python3 -m fw13.theme session-start|session-end (Hyprland login/logout hooks)
+    import sys
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "session-start":
+        msg = session_start()
+        if msg:
+            print("fw13.theme:", msg, file=sys.stderr)
+    elif cmd == "session-end":
+        session_end()
+    else:
+        sys.exit("usage: python3 -m fw13.theme session-start|session-end")

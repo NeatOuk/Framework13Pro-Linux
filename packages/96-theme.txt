@@ -1,0 +1,5 @@
+# Theme (user-approved, Fedora): wallpaper tools (thumbnails, effects) and apps following the palette.
+# matugen comes from the Hyprland COPR (Fedora's 3.1.0 is too old) and is installed by install.sh.
+python3-pillow
+adw-gtk3-theme
+qt6ct
