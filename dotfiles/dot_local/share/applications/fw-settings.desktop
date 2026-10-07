@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Settings
-Comment=Network, Bluetooth, Sound, Display, Power, Appearance, Input, System
+Comment=Network, Bluetooth, Sound, Display, Power, Appearance, Input, System, fw13 setup (keys, backups, shell)
 Icon=preferences-system
 Exec=fw-settings
 Terminal=false

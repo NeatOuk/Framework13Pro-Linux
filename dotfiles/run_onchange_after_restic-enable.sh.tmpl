@@ -1,8 +1,15 @@
 #!/bin/sh
 {{ if ne .restic.repository "" -}}
-# Init the repo if it doesn't exist yet, then enable the daily timer.
+# Repository: {{ .restic.repository | sha256sum }} (hash only; a new repository runs this script again)
+# Init the repo if it doesn't exist yet, then enable the daily timer — unless it was turned off in
+# Settings → fw13 (restic_timer_off in ~/.config/fw13/settings.json), which a `chezmoi update` must respect.
 set -a; . "$HOME/.config/restic/env"; set +a
-restic cat config >/dev/null 2>&1 || restic init
+restic cat config >/dev/null 2>&1
+[ $? -eq 10 ] && restic init
 systemctl --user daemon-reload
-systemctl --user enable --now restic-backup.timer
+if grep -Eqs '"restic_timer_off": *true' "$HOME/.config/fw13/settings.json"; then
+  echo "restic: daily backup is off (Settings → fw13); not enabling restic-backup.timer"
+else
+  systemctl --user enable --now restic-backup.timer
+fi
 {{- end }}
