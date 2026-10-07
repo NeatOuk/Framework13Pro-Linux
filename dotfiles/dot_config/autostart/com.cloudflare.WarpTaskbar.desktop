@@ -1,0 +1,14 @@
+[Desktop Entry]
+# Overrides /etc/xdg/autostart/com.cloudflare.WarpTaskbar.desktop (cloudflare-warp), which uwsm runs: in Hyprland
+# the bar's cloud icon (fw-warp-panel) replaces Cloudflare's tray app; its "Cloudflare app" button still opens it.
+# GNOME/KDE keep it.
+Type=Application
+Version=1.2
+Name=Cloudflare One Client
+Comment=View the current status of the WARP Tunnel
+Exec=/usr/bin/warp-taskbar
+StartupNotify=false
+Icon=zero-trust-orange
+Terminal=false
+StartupWMClass=warp-taskbar
+NotShowIn=Hyprland;

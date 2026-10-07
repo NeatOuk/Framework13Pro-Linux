@@ -107,7 +107,7 @@ system_phase() {
   $SUDO install -m 0644 repos/*.repo /etc/yum.repos.d/
 
   say "Packages (weak dependencies off — only what's listed)"
-  local lists=(00-core.txt 10-desktop.txt 20-input-fonts.txt 30-apps.txt 60-framework.txt 70-dev.txt 80-shells.txt 90-backup.txt 95-citadel.txt 96-theme.txt)
+  local lists=(00-core.txt 10-desktop.txt 20-input-fonts.txt 30-apps.txt 60-framework.txt 70-dev.txt 80-shells.txt 90-backup.txt 95-citadel.txt 96-theme.txt 97-warp.txt)
   has_dm  || lists+=(15-login.txt)
   has_ppd || lists+=(61-power.txt)
   local main gaming codecs
@@ -169,6 +169,7 @@ EOF
     $SUDO systemctl enable --now bluetooth.service fwupd-refresh.timer fw-timeshift.timer
     has_ppd || $SUDO systemctl enable --now tuned.service
     $SUDO systemctl enable --now ollama.service   # local models for OpenCode (fw-opencode)
+    $SUDO systemctl enable --now warp-svc.service  # Cloudflare WARP daemon; register/connect from the bar panel
   fi
 
   rpm -qa --qf '%{NAME}\n' | sort > "$STATE_DIR/rpms-after.txt"

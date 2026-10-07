@@ -1,0 +1,946 @@
+#!/usr/bin/env python3
+"""Cloudflare WARP panel: on/off, mode, DNS filtering, protocol, and everything warp-cli and Cloudflare's trace
+report (exit IP and location, endpoint, handshake, latency, traffic, account, trusted networks, split tunnel).
+
+  fw-warp-panel            open the panel (bar cloud icon: FW_BAR=1 → below the icon; a second click closes it)
+  fw-warp-panel --bar      print the bar module's JSON (waybar custom/warp, signal 11)
+  fw-warp-panel --toggle   connect / disconnect (bar right-click)
+
+Backend: ~/.local/lib/fw13/warp.py. warp-cli needs Cloudflare's Terms of Service accepted: the panel asks once.
+GTK3 + gtk-layer-shell, like fw-display-panel.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+from fw13 import warp  # noqa: E402  (no GTK: --bar must stay fast)
+
+RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+PIDFILE = os.path.join(RUNTIME, "fw-warp-panel.pid")
+BAR_SIGNAL = 11
+PANEL_W = 480
+
+
+def bar_refresh():
+    """Tell waybar to re-run the cloud module now (custom/warp "signal": 11)."""
+    try:
+        out = subprocess.run(["pgrep", "-x", "waybar"], capture_output=True, text=True).stdout.split()
+        for pid in out:
+            os.kill(int(pid), signal.SIGRTMIN + BAR_SIGNAL)
+    except (OSError, ValueError):
+        pass
+
+
+def close_pidfile(path, name):
+    try:
+        pid = int(open(path).read())
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            if name.encode() not in f.read():
+                return False
+        os.kill(pid, signal.SIGTERM)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+if len(sys.argv) > 1 and sys.argv[1] == "--bar":
+    print(json.dumps(warp.bar()))
+    sys.exit(0)
+
+if len(sys.argv) > 1 and sys.argv[1] == "--toggle":
+    st = warp.status() if warp.tos_accepted() else None
+    if st is None:
+        os.execvp("fw-warp-panel", ["fw-warp-panel"])  # not set up yet: open the panel instead
+    err = warp.disconnect() if st["status"] in ("Connected", "Connecting") else warp.connect()
+    bar_refresh()
+    if err:
+        subprocess.run(["fw-notify", "Cloudflare WARP", err])
+    sys.exit(0)
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
+
+from fw13 import ui_theme  # noqa: E402
+from fw13.hypr import hj  # noqa: E402
+from fw13.ui_theme import button, label  # noqa: E402
+
+
+def right_margin():
+    """Centre the panel under the pointer on the focused monitor, like fw-menu-anchor."""
+    try:
+        cx = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True, text=True).stdout)["x"]
+        m = next(m for m in hj("monitors") if m["focused"])
+        return max(0, int(m["x"] + m["width"] / m["scale"] - cx - PANEL_W / 2))
+    except (ValueError, KeyError, StopIteration):
+        return 0
+
+
+def max_height():
+    try:
+        m = next(m for m in hj("monitors") if m["focused"])
+        return int(m["height"] / m["scale"]) - 80
+    except (ValueError, KeyError, StopIteration):
+        return 700
+
+
+def dur(seconds):
+    s = int(seconds)
+    if s < 60:
+        return f"{s} s"
+    m = s // 60
+    return f"{m // 60} h {m % 60} min" if m >= 60 else f"{m} min"
+
+
+def in_thread(work, done):
+    """work() in a thread, done(result) back on the GTK loop."""
+    def run():
+        try:
+            res = work()
+        except Exception as e:  # noqa: BLE001 — show it, don't kill the panel
+            res = f"{type(e).__name__}: {e}"
+        GLib.idle_add(lambda: (done(res), False)[1])
+    threading.Thread(target=run, daemon=True).start()
+
+
+class KV(Gtk.Box):
+    """A titled 'label … value' list that updates in place (values change every poll; rows rarely)."""
+
+    def __init__(self, title):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.pack_start(label(title, "heading"), False, False, 0)
+        self.grid = Gtk.Grid(column_spacing=14, row_spacing=3)
+        self.pack_start(self.grid, False, False, 0)
+        self.keys = []
+        self.values = {}
+
+    def set_rows(self, rows):
+        rows = [(k, v) for k, v in rows if v not in (None, "")]
+        keys = [k for k, _ in rows]
+        if keys != self.keys:
+            for c in self.grid.get_children():
+                self.grid.remove(c)
+            self.values = {}
+            for i, (k, _v) in enumerate(rows):
+                self.grid.attach(label(k, "dim"), 0, i, 1, 1)
+                # One line, shortened in the middle when long (full text in the tooltip): a wrapping label in
+                # a Grid gets its one-character minimum width and grows thousands of pixels tall.
+                val = label("", selectable=True, xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE)
+                val.set_hexpand(True)
+                self.grid.attach(val, 1, i, 1, 1)
+                self.values[k] = val
+            self.keys = keys
+            self.grid.show_all()
+        for k, v in rows:
+            if self.values[k].get_text() != v:
+                self.values[k].set_text(v)
+                self.values[k].set_tooltip_text(v if len(v) > 30 else None)
+        self.set_visible(bool(rows))
+
+
+def combo(options, cb):
+    c = Gtk.ComboBoxText()
+    for key, text in options:
+        c.append(key, text)
+    c.handler = c.connect("changed", lambda w: cb(w.get_active_id()))
+    return c
+
+
+def combo_set(c, value):
+    ids = [r[1] for r in c.get_model()]
+    value = next((i for i in ids if value and i.lower() == str(value).lower()), value)  # warp-cli: "masque"
+    if value and c.get_active_id() != value:
+        c.handler_block(c.handler)
+        if not c.set_active_id(value):
+            c.append(value, value)  # a value we don't know (newer warp-cli): show it as is
+            c.set_active_id(value)
+        c.handler_unblock(c.handler)
+
+
+class Panel(Gtk.Window):
+    def __init__(self, at_bar):
+        super().__init__()
+        self.get_style_context().add_class("panel")
+        self.set_size_request(PANEL_W, -1)
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_namespace(self, "fw-warp-panel")
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        if at_bar:
+            GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
+            GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
+            GtkLayerShell.set_margin(self, GtkLayerShell.Edge.RIGHT, right_margin())
+        self.connect("key-press-event", lambda _w, e: e.keyval == Gdk.KEY_Escape and Gtk.main_quit())
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroll = scroll
+        self.max_h = max_height()
+        self.box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(self.box, f"set_margin_{side}")(14)
+        scroll.add(self.box)
+        self.add(scroll)
+
+        self.view = None       # "missing" | "tos" | "register" | "main"
+        self.busy = False      # an action is running
+        self.data = {}         # last poll
+        self.trace = {}        # {"v4": {...}, "v6": {...}, "at": t}
+        self.last_io = None    # (time, rx, tx) for live rates
+        self.polling = False
+        self.message = None
+        self.choose_view()
+        GLib.timeout_add_seconds(2, self.poll)
+        GLib.timeout_add(1000, self.tick)
+
+    def fit(self):
+        """A layer-shell window gets the scroll area's minimum height, so make that the content's height (capped
+        at the screen): the panel grows and shrinks with its sections and scrolls only when taller than the screen."""
+        width = self.scroll.get_allocated_width() if self.scroll.get_allocated_width() > 1 else PANEL_W
+        want = min(self.box.get_preferred_height_for_width(width)[1], self.max_h)  # wrapped text: at our width
+        if self.scroll.get_min_content_height() != want:
+            self.scroll.set_min_content_height(want)
+            self.resize(PANEL_W, 1)  # a mapped layer surface keeps its size until asked; 1 = "as small as fits"
+        return False
+
+    # ---- views -------------------------------------------------------------------------------------------------
+
+    def clear(self):
+        for c in self.box.get_children():
+            self.box.remove(c)
+
+    def header(self, right=None):
+        row = Gtk.Box(spacing=10)
+        row.pack_start(label("Cloudflare WARP", "title"), True, True, 0)
+        if right is not None:
+            right.set_valign(Gtk.Align.CENTER)
+            row.pack_end(right, False, False, 0)
+        self.box.pack_start(row, False, False, 0)
+
+    def note(self, text, cls="dim"):
+        lbl = label(text, cls)
+        lbl.set_line_wrap(True)
+        self.box.pack_start(lbl, False, False, 0)
+        return lbl
+
+    def choose_view(self):
+        if not warp.installed():
+            view = "missing"
+        elif not warp.tos_accepted():
+            view = "tos"
+        else:
+            st = self.data.get("status")
+            view = "register" if st and "egistration" in (st.get("reason") or "").replace(" ", "") \
+                and st["status"] != "Connected" else "main"
+        if view != self.view:
+            self.view = view
+            getattr(self, f"build_{view}")()
+            self.show_all()
+            # Focus something at the top: otherwise GTK focuses the first entry once the panel gets the keyboard
+            # and scrolls down to it.
+            top = getattr(self, "switch", None) if view == "main" else None
+            self.set_focus(top)
+            self.update()
+            GLib.idle_add(self.fit)
+            GLib.idle_add(lambda: self.scroll.get_vadjustment().set_value(0) and False)
+
+    def build_missing(self):
+        self.clear()
+        self.header()
+        self.note("cloudflare-warp isn't installed. It comes from Cloudflare's own repository "
+                  "(pkg.cloudflareclient.com); install.sh adds it.")
+
+    def build_tos(self):
+        self.clear()
+        self.header()
+        self.note("WARP needs Cloudflare's Terms of Service and Privacy Policy accepted before it can be used:")
+        links = Gtk.Box(spacing=12)
+        for text, url in (("Terms of Service", warp.TOS_URL), ("Privacy Policy", warp.PRIVACY_URL)):
+            links.pack_start(button(text, lambda u=url: self.open_url(u)), False, False, 0)
+        self.box.pack_start(links, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        row.pack_start(button("Accept", self.accept, "primary"), False, False, 0)
+        row.pack_start(button("Not now", Gtk.main_quit), False, False, 0)
+        self.box.pack_start(row, False, False, 0)
+        self.status_label = self.note("")
+
+    def build_register(self):
+        self.clear()
+        self.header()
+        self.note("This laptop isn't registered with WARP yet.")
+        self.box.pack_start(label("Free WARP", "heading"), False, False, 0)
+        self.note("A free WARP device: no account or e-mail. A WARP+ key can be added later.")
+        row = Gtk.Box(spacing=8)
+        row.pack_start(button("Register", lambda: self.act(warp.register, "Registering…"), "primary"),
+                       False, False, 0)
+        self.box.pack_start(row, False, False, 0)
+        self.box.pack_start(label("Zero Trust organization", "heading"), False, False, 0)
+        self.note("Your team name (team.cloudflareaccess.com). You sign in in the browser; "
+                  "WARP picks the login up from there.")
+        self.join_row()
+        self.status_label = self.note("")
+        self.citadel = self.note("", "warn")
+
+    def build_main(self):
+        self.clear()
+        self.switch = Gtk.Switch()
+        self.switch_handler = self.switch.connect("state-set", self.on_switch)
+        self.header(self.switch)
+        self.headline = label("", "dim")
+        self.headline.set_line_wrap(True)
+        self.box.pack_start(self.headline, False, False, 0)
+        self.status_label = label("", "dim")
+        self.status_label.set_line_wrap(True)
+        self.box.pack_start(self.status_label, False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=12, row_spacing=6)
+        self.mode = combo(warp.MODES, lambda v: self.act(lambda: warp.set_mode(v), "Changing mode…"))
+        self.families = combo(warp.FAMILIES, lambda v: self.act(lambda: warp.set_families(v), "Changing DNS filter…"))
+        self.protocol = combo(warp.PROTOCOLS, lambda v: self.act(lambda: warp.set_protocol(v), "Changing protocol…"))
+        for i, (text, w) in enumerate((("Mode", self.mode), ("DNS filter", self.families),
+                                       ("Protocol", self.protocol))):
+            grid.attach(label(text, "dim"), 0, i, 1, 1)
+            w.set_hexpand(True)
+            grid.attach(w, 1, i, 1, 1)
+        self.box.pack_start(grid, False, False, 0)
+
+        self.conn = KV("Connection")
+        self.tunnel = KV("Tunnel")
+        self.account = KV("Account")
+        self.dns = KV("DNS")
+        self.net = KV("Physical network")
+        for s in (self.conn, self.tunnel, self.dns, self.account, self.net):
+            self.box.pack_start(s, False, False, 0)
+
+        # Trusted networks + split tunnel + proxy port. warp-cli marks trusted networks, split-tunnel edits, DNS
+        # families, protocol and license keys "Consumer only": on a Zero Trust device the organization sets them.
+        self.trusted_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.box.pack_start(self.trusted_box, False, False, 0)
+        self.trusted_box.pack_start(label("Trusted networks (WARP turns off there)", "heading"), False, False, 0)
+        t = Gtk.Box(spacing=16)
+        self.trust_wifi = Gtk.CheckButton(label="All Wi-Fi")
+        self.trust_eth = Gtk.CheckButton(label="All Ethernet")
+        self.trust_wifi.handler = self.trust_wifi.connect(
+            "toggled", lambda b: self.act(lambda: warp.set_trusted("wifi", b.get_active()), "Saving…"))
+        self.trust_eth.handler = self.trust_eth.connect(
+            "toggled", lambda b: self.act(lambda: warp.set_trusted("ethernet", b.get_active()), "Saving…"))
+        t.pack_start(self.trust_wifi, False, False, 0)
+        t.pack_start(self.trust_eth, False, False, 0)
+        self.trusted_box.pack_start(t, False, False, 0)
+        self.ssids = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.trusted_box.pack_start(self.ssids, False, False, 0)
+        self.ssid_entry = self.entry_row("Wi-Fi name", "Trust", lambda v: warp.add_trusted_ssid(v),
+                                         prefill=current_ssid(), parent=self.trusted_box)
+
+        self.split_head = label("Split tunnel", "heading")
+        self.box.pack_start(self.split_head, False, False, 0)
+        self.ip_summary = label("", "dim")
+        self.ip_summary.set_line_wrap(True)
+        self.box.pack_start(self.ip_summary, False, False, 0)
+        self.split_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.box.pack_start(self.split_list, False, False, 0)
+        self.split_edit = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.box.pack_start(self.split_edit, False, False, 0)
+        self.entry_row("IP or range, e.g. 10.1.0.0/16", "Add IP", lambda v: warp.add_split_ip(v),
+                       parent=self.split_edit)
+        self.entry_row("Host, e.g. example.com", "Add host", lambda v: warp.add_split_host(v),
+                       parent=self.split_edit)
+
+        self.box.pack_start(label("Fallback domains", "heading"), False, False, 0)
+        fb = label("Names under these domains are resolved by the listed DNS server (or the network's own), "
+                   "not by Cloudflare: for intranet and local names.", "dim")
+        fb.set_line_wrap(True)
+        self.box.pack_start(fb, False, False, 0)
+        self.fallback_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.box.pack_start(self.fallback_list, False, False, 0)
+        self.fallback_edit = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.box.pack_start(self.fallback_edit, False, False, 0)
+        self.entry_row("Domain, e.g. corp.example", "Add domain", lambda v: warp.add_fallback(v),
+                       parent=self.fallback_edit)
+
+        self.policy = KV("Organization policy")
+        self.box.pack_start(self.policy, False, False, 0)
+
+        self.proxy_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.proxy_box.pack_start(label("Proxy (SOCKS5 on 127.0.0.1)", "heading"), False, False, 0)
+        self.proxy_port = Gtk.SpinButton.new_with_range(1024, 65535, 1)
+        pr = Gtk.Box(spacing=8)
+        pr.pack_start(label("Port", "dim"), False, False, 0)
+        pr.pack_start(self.proxy_port, False, False, 0)
+        pr.pack_start(button("Set", lambda: self.act(lambda: warp.set_proxy_port(self.proxy_port.get_value()),
+                                                     "Saving…")), False, False, 0)
+        self.proxy_box.pack_start(pr, False, False, 0)
+        self.box.pack_start(self.proxy_box, False, False, 0)
+
+        self.box.pack_start(label("Change account", "heading"), False, False, 0)
+        self.license_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.box.pack_start(self.license_box, False, False, 0)
+        lic = label("WARP+ key: upgrade this device with a key from the 1.1.1.1 app (keeps the registration).",
+                    "dim")
+        lic.set_line_wrap(True)
+        self.license_box.pack_start(lic, False, False, 0)
+        self.license_entry = self.entry_row("WARP+ license key", "Use key", lambda v: warp.set_license(v),
+                                            parent=self.license_box)
+        self.join_note = self.note("")
+        self.join_row(replaces=True)
+
+        self.box.pack_start(label("Tools", "heading"), False, False, 0)
+        self.rereg = button("Re-register", self.ask_reregister)
+        self.tool_row(self.rereg, "New device identity and a fresh free account: for a broken registration "
+                                  "or to leave an organization")
+        self.tool_row(button("Speed test", self.speed_test), "Download/upload through Cloudflare, about a minute; "
+                                                             "the result shows at the top")
+        self.tool_row(button("Cloudflare app", lambda: launch("warp-taskbar")),
+                      "Cloudflare's own tray app (hidden in Hyprland): Zero Trust login prompts and notices")
+        self.citadel = label("", "warn")
+        self.citadel.set_line_wrap(True)
+        self.box.pack_start(self.citadel, False, False, 0)
+        self.confirm_rereg = False
+
+    def tool_row(self, btn, hint):
+        """Button on the left, what it does next to it (wrapped, dim)."""
+        row = Gtk.Box(spacing=12)
+        btn.set_valign(Gtk.Align.START)
+        btn.set_size_request(150, -1)
+        row.pack_start(btn, False, False, 0)
+        h = label(hint, "dim")
+        h.set_line_wrap(True)
+        row.pack_start(h, True, True, 0)
+        self.box.pack_start(row, False, False, 0)
+
+    def entry_row(self, placeholder, text, fn, prefill="", parent=None):
+        row = Gtk.Box(spacing=8)
+        e = Gtk.Entry(placeholder_text=placeholder, text=prefill or "")
+        e.set_hexpand(True)
+
+        def go(*_):
+            v = e.get_text().strip()
+            if v:
+                self.act(lambda: fn(v), "Saving…", after=lambda: e.set_text(""))
+        e.connect("activate", go)
+        row.pack_start(e, True, True, 0)
+        row.pack_start(button(text, go), False, False, 0)
+        (parent or self.box).pack_start(row, False, False, 0)
+        return e
+
+    def join_row(self, replaces=False):
+        """Team name entry + Join. When already registered, Join replaces that registration: ask once."""
+        row = Gtk.Box(spacing=8)
+        e = Gtk.Entry(placeholder_text="Zero Trust team name")
+        e.set_hexpand(True)
+        b = button("Join organization")
+        state = {"armed": False}
+
+        def go(*_):
+            team = e.get_text().strip()
+            if not team:
+                self.set_message("Enter your team name first", "warn")
+                return
+            if replaces and not state["armed"]:
+                state["armed"] = True
+                b.set_label("Replace registration?")
+                GLib.timeout_add_seconds(5, lambda: (state.update(armed=False), b.set_label("Join organization"),
+                                                     False)[2])
+                return
+            self.join(team)
+        e.connect("activate", go)
+        b.connect("clicked", go)
+        row.pack_start(e, True, True, 0)
+        row.pack_start(b, False, False, 0)
+        self.box.pack_start(row, False, False, 0)
+
+    def join(self, team):
+        if self.busy:
+            return
+        self.busy = True
+        self.set_message(f"Joining {team}…")
+
+        def done(res):
+            self.busy = False
+            url, err = res if isinstance(res, tuple) else (None, str(res))
+            if err:
+                self.set_message(err, "warn")
+            elif url:
+                self.open_url(url)
+                self.set_message(f"Sign in to {team} in the browser; WARP registers when you're done")
+            else:
+                self.set_message(f"Registered with {team}")
+            bar_refresh()
+            self.poll()
+        in_thread(lambda: warp.join_org(team), done)
+
+    # ---- actions -----------------------------------------------------------------------------------------------
+
+    def open_url(self, url):
+        launch("xdg-open", url)
+
+    def accept(self):
+        warp.accept_tos()
+        bar_refresh()
+        self.view = None
+        self.poll()
+
+    def on_switch(self, _sw, on):
+        self.act(warp.connect if on else warp.disconnect, "Connecting…" if on else "Disconnecting…")
+        return False
+
+    def ask_reregister(self):
+        if not self.confirm_rereg:
+            self.confirm_rereg = True
+            self.rereg.set_label("Really? New device ID")
+            GLib.timeout_add_seconds(5, self.reset_rereg)
+            return
+        self.reset_rereg()
+        self.act(lambda: warp.unregister() or warp.register(), "Registering again…")
+
+    def reset_rereg(self):
+        self.confirm_rereg = False
+        if self.view == "main":
+            self.rereg.set_label("Re-register")
+        return False
+
+    def speed_test(self):
+        def work():
+            ok, out = warp.cli("debug", "speed-test", json_out=False, timeout=90)
+            return out if ok else f"Speed test failed: {out}"
+        self.set_message("Running a speed test (up to a minute)…")
+        in_thread(work, lambda res: self.set_message(" · ".join(
+            line.strip() for line in str(res).splitlines() if line.strip())[:400]))
+
+    def act(self, fn, msg, after=None):
+        if self.busy:
+            return
+        self.busy = True
+        self.set_message(msg)
+
+        def done(err):
+            self.busy = False
+            self.set_message(err if err else None, "warn" if err else "dim")
+            if after and not err:
+                after()
+            self.trace = {}  # exit IP may have changed
+            bar_refresh()
+            self.poll()
+        in_thread(fn, done)
+
+    def set_message(self, text, cls="dim"):
+        self.message = (text, cls) if text else None
+        lbl = getattr(self, "status_label", None)
+        if lbl is not None:
+            ctx = lbl.get_style_context()
+            for c in ("dim", "warn"):
+                ctx.remove_class(c)
+            ctx.add_class(cls)
+            lbl.set_text(text or "")
+            lbl.set_visible(bool(text))
+
+    # ---- polling -----------------------------------------------------------------------------------------------
+
+    def poll(self):
+        if self.polling:
+            return True
+        self.polling = True
+        want_trace = not self.trace or time.time() - self.trace.get("at", 0) > 30
+        slow = not self.data or time.time() - self.data.get("slow_at", 0) > 20
+
+        def work():
+            d = {"status": warp.status()}
+            if d["status"] is None:
+                return d
+            d["settings"] = warp.settings()
+            d["tunnel"] = warp.tunnel_stats() if d["status"]["status"] == "Connected" else None
+            if slow:
+                d["slow_at"] = time.time()
+                d["registration"] = warp.registration()
+                d["org"] = warp.organization()
+                d["dns"] = warp.dns_stats()
+                d["network"] = warp.network()
+                d["ssids"] = warp.trusted_ssids()
+                d["hosts"] = warp.split_hosts()
+                d["citadel"] = warp.citadel_note()
+            else:
+                for k in ("slow_at", "registration", "org", "dns", "network", "ssids", "hosts", "citadel"):
+                    d[k] = self.data.get(k)
+            if want_trace:
+                d["trace"] = {"v4": warp.trace(), "v6": warp.trace(v6=True), "at": time.time()}
+            return d
+
+        def done(d):
+            self.polling = False
+            if isinstance(d, str):
+                self.set_message(d, "warn")
+                return
+            if "trace" in d:
+                self.trace = d.pop("trace")
+            self.data = d
+            self.choose_view()
+            self.update()
+        if warp.installed() and warp.tos_accepted():
+            in_thread(work, done)
+        else:
+            self.polling = False
+            self.choose_view()
+        return True
+
+    def tick(self):
+        """Every second: live traffic rates from the interface counters (no warp-cli call)."""
+        if self.view == "main":
+            self.update_connection()
+        return True
+
+    # ---- filling in --------------------------------------------------------------------------------------------
+
+    def update(self):
+        d = self.data
+        if self.view == "register":
+            st = d.get("status") or {}
+            self.set_message(self.message[0] if self.message else (st.get("reason") or ""),
+                             self.message[1] if self.message else "dim")
+            self.citadel.set_text(d.get("citadel") or "")
+            self.citadel.set_visible(bool(d.get("citadel")))
+            return
+        if self.view != "main":
+            return
+        st = d.get("status")
+        s = st["status"] if st else "warp-svc isn't answering"
+        on = bool(st) and s in ("Connected", "Connecting")
+        self.switch.handler_block(self.switch_handler)
+        self.switch.set_active(on)
+        self.switch.set_state(s == "Connected")
+        self.switch.handler_unblock(self.switch_handler)
+        self.switch.set_sensitive(bool(st) and not self.busy)
+
+        sett = d.get("settings") or {}
+        reg = d.get("registration") or {}
+        acct = account_type(reg)
+        plus = (self.trace.get("v4") or {}).get("warp")
+        bits = [s]
+        if acct:
+            bits.append(str(acct))
+        if plus in ("on", "plus"):
+            bits.append("WARP+" if plus == "plus" else "WARP on")
+        if st and st.get("reason") and s != "Connected":
+            bits.append(st["reason"])
+        self.headline.set_text(" · ".join(bits))
+        if self.message:
+            self.set_message(*self.message)
+        else:
+            self.status_label.hide()
+
+        combo_set(self.mode, str(warp.find(sett, "operation_mode") or warp.find(sett, "mode") or "warp").lower())
+        fam = warp.find(sett, "famil")
+        combo_set(self.families, (fam if isinstance(fam, str) else "off").lower())
+        proto = warp.find(sett, "protocol")
+        combo_set(self.protocol, proto if isinstance(proto, str) and proto else "MASQUE")
+        managed = account_type(reg) == "Zero Trust"
+        for w in (self.families, self.protocol):  # "Consumer only" in warp-cli
+            w.set_sensitive(not self.busy and not managed)
+            w.set_tooltip_text("Set by your organization" if managed else None)
+        no_mode = sett.get("allow_mode_switch") is False
+        self.mode.set_sensitive(not self.busy and not no_mode)
+        self.mode.set_tooltip_text("Your organization doesn't allow changing the mode" if no_mode else None)
+        if sett.get("switch_locked"):
+            self.switch.set_sensitive(False)
+            self.switch.set_tooltip_text("Locked by your organization")
+        for w in (self.trusted_box, self.split_edit, self.fallback_edit, self.license_box):
+            w.set_visible(not managed)
+        org = d.get("org")
+        org = (org.get("organization") if isinstance(org, dict) else org) or "your organization"
+        self.join_note.set_text(
+            f"Zero Trust: this laptop is in {org}. Enter another team name to switch (replaces this "
+            "registration; you sign in in the browser). Re-register below leaves it." if managed else
+            "Zero Trust: move this laptop into your company's Cloudflare team (replaces the current "
+            "registration; you sign in in the browser).")
+
+        self.update_connection()
+        self.tunnel.set_rows(tunnel_rows(d.get("tunnel")))
+        self.account.set_rows(account_rows(reg, d.get("org")))
+        self.dns.set_rows(dns_rows(d.get("dns")))
+        self.net.set_rows(network_rows(d.get("network")))
+
+        for b, key in ((self.trust_wifi, "disable_for_wifi"), (self.trust_eth, "disable_for_ethernet")):
+            b.handler_block(b.handler)
+            b.set_active(bool(sett.get(key)))
+            b.handler_unblock(b.handler)
+        self.fill_list(self.ssids, d.get("ssids"), warp.remove_trusted_ssid, "No trusted Wi-Fi names")
+        split = str(sett.get("split_tunnel_mode") or "exclude").lower()
+        include = split == "include"
+        hosts = [h.get("value") if isinstance(h, dict) else h for h in sett.get("split_tunnel_hosts") or []]
+        ips = sett.get("split_tunnel_ips") or []
+        self.split_head.set_text("Split tunnel: only these use WARP" if include else "Split tunnel: these bypass WARP")
+        what = f"{len(ips)} ranges" + (f" and {len(hosts)} hosts" if hosts else "")
+        by = " (set by your organization)" if managed else ""
+        self.ip_summary.set_text(
+            f"Include mode{by}: traffic to these {what} goes through WARP, everything else goes direct."
+            if include else
+            f"Exclude mode{by}: these {what} skip WARP (private networks by default), everything else goes "
+            "through it.")
+        entries = [(e.get("value", "") if isinstance(e, dict) else str(e),
+                    e.get("description", "") if isinstance(e, dict) else "", warp.remove_split_ip) for e in ips]
+        entries += [(e.get("value", "") if isinstance(e, dict) else str(e),
+                     e.get("description", "") if isinstance(e, dict) else "", warp.remove_split_host) for e in hosts]
+        self.fill_table(self.split_list, entries, not managed, "Nothing listed")
+        fallbacks = sett.get("fallback_domains") or []
+        self.fill_table(self.fallback_list, [
+            (e.get("domain", "") if isinstance(e, dict) else str(e),
+             " · ".join(x for x in ((e.get("description") or ""),
+                                    ", ".join(e.get("dns_servers") or []) and "DNS " + ", ".join(e["dns_servers"]))
+                        if x) if isinstance(e, dict) else "", warp.remove_fallback) for e in fallbacks],
+            not managed, "None")
+        self.policy.set_rows(policy_rows(sett) if managed else [])
+        mode = str(warp.find(sett, "operation_mode") or "").lower()
+        port = warp.find(sett, "proxy_port") or warp.find(sett, "port")
+        if isinstance(port, int) and not self.proxy_port.has_focus():
+            self.proxy_port.set_value(port)
+        elif not self.proxy_port.get_value() > 1024:
+            self.proxy_port.set_value(40000)
+        self.proxy_box.set_visible(mode == "proxy")
+        note = d.get("citadel") if s != "Connected" else None  # connected: Citadel evidently lets it through
+        self.citadel.set_text(note or "")
+        self.citadel.set_visible(bool(note))
+        GLib.idle_add(self.fit)  # sections appear/disappear as data arrives
+
+    def fill_table(self, box, entries, editable, empty):
+        """[(value, description, remove_fn)] as 'value  description  [Remove]' lines (Remove only if editable)."""
+        key = [(v, dsc) for v, dsc, _f in entries] + [editable]
+        if getattr(box, "shown", None) == key:
+            return
+        box.shown = key
+        for c in box.get_children():
+            box.remove(c)
+        if not entries:
+            box.pack_start(label(empty, "dim"), False, False, 0)
+        for value, desc, remove in entries:
+            r = Gtk.Box(spacing=12)
+            v = label(value, selectable=True)
+            v.set_size_request(170, -1)
+            r.pack_start(v, False, False, 0)
+            d = label(desc or "—", "dim", ellipsize=Pango.EllipsizeMode.END)
+            d.set_tooltip_text(desc or None)
+            r.pack_start(d, True, True, 0)
+            if editable:
+                r.pack_end(button("Remove", lambda val=value, fn=remove: self.act(lambda: fn(val), "Removing…"),
+                                  "danger"), False, False, 0)
+            box.pack_start(r, False, False, 0)
+        box.show_all()
+
+    def fill_list(self, box, items, remove, empty):
+        items = [warp.value_text(x.get("value", x) if isinstance(x, dict) else x) for x in (items or [])
+                 if x not in (None, "")]
+        if isinstance(items, list) and getattr(box, "shown", None) == items:
+            return
+        box.shown = items
+        for c in box.get_children():
+            box.remove(c)
+        if not items and empty:
+            box.pack_start(label(empty, "dim"), False, False, 0)
+        for it in items:
+            r = Gtk.Box(spacing=8)
+            r.pack_start(label(it), True, True, 0)
+            if remove:
+                r.pack_end(button("Remove", lambda v=it: self.act(lambda: remove(v), "Removing…"), "danger"),
+                           False, False, 0)
+            box.pack_start(r, False, False, 0)
+        box.show_all()
+
+    def update_connection(self):
+        v4 = self.trace.get("v4") or {}
+        v6 = self.trace.get("v6") or {}
+        io = warp.iface()
+        rows = []
+        if v4 or v6:
+            rows.append(("Exit IP", " · ".join(x for x in (v4.get("ip"), v6.get("ip")) if x) or "—"))
+            loc = v4.get("loc") or v6.get("loc")
+            colo = v4.get("colo") or v6.get("colo")
+            rows.append(("Cloudflare", " · ".join(x for x in (colo and f"data centre {colo}",
+                                                               loc and f"seen from {loc}") if x)))
+            w = v4.get("warp") or v6.get("warp")
+            sett = self.data.get("settings") or {}
+            via = {"on": "yes", "plus": "yes (WARP+)", "off": "no"}.get(w, w)
+            if w == "off" and str(sett.get("split_tunnel_mode", "")).lower() == "include":
+                via = "no (include mode: see Split tunnel)"
+            rows.append(("Internet via WARP", via))
+            rows.append(("HTTP / TLS", " · ".join(x for x in (v4.get("http"), v4.get("tls")) if x)))
+            if v4.get("gateway") or v4.get("sni"):
+                rows.append(("Gateway", " · ".join(f"{k} {v4[k]}" for k in ("gateway", "sni") if v4.get(k))))
+        elif self.data.get("status"):
+            rows.append(("Exit IP", "checking…" if not self.trace else "no answer from Cloudflare"))
+        if io:
+            now = time.time()
+            rate = ""
+            if self.last_io and now - self.last_io[0] > 0.5:
+                dt = now - self.last_io[0]
+                rate = (f"  (↓ {warp.human_bytes((io['rx'] - self.last_io[1]) / dt)}/s "
+                        f"↑ {warp.human_bytes((io['tx'] - self.last_io[2]) / dt)}/s)")
+            self.last_io = (now, io["rx"], io["tx"])
+            rows.append(("Traffic", f"↓ {warp.human_bytes(io['rx'])}  ↑ {warp.human_bytes(io['tx'])}{rate}"))
+            rows.append(("Interface", f"{warp.IFACE} · MTU {io['mtu']}"))
+            if io["addrs"]:
+                rows.append(("Tunnel address", ", ".join(io["addrs"])))
+        else:
+            self.last_io = None
+        self.conn.set_rows(rows)
+
+
+ACCOUNT_TYPES = {"free": "Free WARP", "limited": "WARP+", "unlimited": "WARP+ Unlimited", "team": "Zero Trust"}
+
+
+def account_type(reg):
+    acct = reg.get("account") if isinstance(reg, dict) and isinstance(reg.get("account"), dict) else {}
+    t = acct.get("type")
+    return ACCOUNT_TYPES.get(str(t).lower(), t) if t else None
+
+
+def account_rows(reg, org):
+    """The registration fields worth reading (warp-cli also lists the tunnel's public key and internal ids)."""
+    acct = reg.get("account") if isinstance(reg.get("account"), dict) else {}
+    org_name = (org.get("organization") or org.get("name")) if isinstance(org, dict) else org
+    rows = [("Type", account_type(reg)),
+            ("Organization", org_name if org_name not in (None, "", "—") else None),
+            ("Device ID", reg.get("device_id") or reg.get("id")),
+            ("Account ID", acct.get("id")),
+            ("License", acct.get("license")),
+            ("Managed", warp.value_text(reg["managed"]) if "managed" in reg else None)]
+    known = {"id", "device_id", "public_key", "account", "managed", "alternate_networks"}
+    rows += warp.flatten({k: v for k, v in reg.items() if k not in known})
+    return [(k, str(v)) for k, v in rows if v not in (None, "")]
+
+
+def tunnel_rows(t):
+    """`warp-cli tunnel stats` in words (only while connected)."""
+    if not isinstance(t, dict):
+        return []
+    ep = [x for x in (t.get("v4_endpoint"), t.get("v6_endpoint")) if x and x not in ("::", "0.0.0.0")]
+    loss = t.get("estimated_loss")
+    hs = t.get("secs_since_last_handshake")
+    rows = [("Protocol", t.get("protocol")),
+            ("Endpoint", ", ".join(ep) or None),
+            ("Last handshake", f"{dur(hs)} ago" if isinstance(hs, (int, float)) else None),
+            ("Latency", f"{t['estimated_latency_ms']} ms" if t.get("estimated_latency_ms") is not None else None),
+            ("Packet loss", f"{loss * 100:.2f} %" if isinstance(loss, (int, float)) else None),
+            ("Sent / received", f"{warp.human_bytes(t.get('bytes_sent'))} / {warp.human_bytes(t.get('bytes_received'))}"
+             if "bytes_sent" in t else None)]
+    known = {"v4_endpoint", "v6_endpoint", "warp_is_on", "secs_since_last_handshake", "bytes_sent", "bytes_received",
+             "estimated_latency_ms", "estimated_loss", "protocol"}
+    rows += warp.flatten({k: v for k, v in t.items() if k not in known and v is not None})
+    return [(k, str(v)) for k, v in rows if v not in (None, "")]
+
+
+def dns_rows(d):
+    """`warp-cli dns stats`: WARP's DNS proxy and how its queries went."""
+    if not isinstance(d, dict):
+        return []
+    rows = [("DNS proxy", "on" if d.get("dns_proxy_enabled") else "off")]
+    if d.get("total"):
+        rows += [("Queries", f"{d['total']} · {d.get('success', 0)} answered · {d.get('no_records_found', 0)} "
+                             f"no record · {d.get('timed_out', 0)} timed out · {d.get('other_error', 0)} failed"),
+                 ("Average time", f"{d.get('avg_duration_millis', 0):.1f} ms")]
+    else:
+        rows.append(("Queries", "none yet"))
+    known = {"dns_proxy_enabled", "total", "success", "no_records_found", "timed_out", "other_error",
+             "avg_duration_millis"}
+    rows += warp.flatten({k: v for k, v in d.items() if k not in known})
+    return [(k, str(v)) for k, v in rows if v not in (None, "")]
+
+
+POLICY_KEYS = [  # settings worth showing for an organization-managed device, in this order
+    ("organization", "Organization"), ("profile_id", "Device profile"), ("always_on", "Always on"),
+    ("switch_locked", "Switch locked"), ("allow_mode_switch", "May change mode"),
+    ("allowed_to_leave", "May leave the organization"), ("allow_updates", "May update the client"),
+    ("doh_hostname", "DoH resolver"), ("doh_resolver_ips", "Resolver IPs"),
+    ("disable_auto_fallback", "Auto fallback off"), ("captive_portal_detection_enabled", "Captive portal check"),
+    ("captive_portal_firewall_off_secs", "Captive portal window (s)"), ("lan_subnet_size", "LAN access subnet"),
+    ("register_interface_ip_with_dns", "Register IP with DNS"), ("post_quantum_config", "Post-quantum"),
+    ("support_url", "Support"), ("dns_policy", "DNS policy")]
+
+
+def policy_rows(sett):
+    rows = []
+    for key, text in POLICY_KEYS:
+        if key in sett and sett[key] not in (None, "", [], {}):
+            v = sett[key]
+            if isinstance(v, str) and "_" in v and " " not in v and "/" not in v:
+                v = v.replace("_", " ")  # enabled_with_downgrades
+            rows.append((text, warp.value_text(v) if not isinstance(v, dict)
+                         else ", ".join(f"{warp.pretty_key(k)}: {warp.value_text(x)}" for k, x in v.items())))
+    return rows
+
+
+def network_rows(net):
+    """`warp-cli debug network`: the physical link WARP runs over (v4_iface / v6_iface, DNS, captive portal)."""
+    if not isinstance(net, dict):
+        return []
+    rows = []
+    for fam in ("v4", "v6"):
+        i = net.get(f"{fam}_iface")
+        if isinstance(i, dict):
+            name = " · ".join(str(x) for x in (i.get("name"), i.get("kind")) if x)
+            rows += [(f"IP{fam} link", name), (f"IP{fam} address", i.get("address")),
+                     (f"IP{fam} gateway", i.get("gateway"))]
+    t = net.get("tunnel_iface")
+    if isinstance(t, dict):
+        rows.append(("Tunnel link", t.get("name")))
+    rows.append(("DNS servers", warp.value_text(net.get("dns_servers")) if net.get("dns_servers") else None))
+    if "captive_portal_detected" in net:
+        rows.append(("Captive portal", "detected" if net["captive_portal_detected"] else "no"))
+    known = {"v4_iface", "v6_iface", "tunnel_iface", "dns_servers", "captive_portal_detected"}
+    rows += warp.flatten({k: v for k, v in net.items() if k not in known})
+    return [(k, str(v)) for k, v in rows if v not in (None, "")]
+
+
+def current_ssid():
+    try:
+        out = subprocess.run(["nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi"], capture_output=True, text=True,
+                             timeout=3).stdout
+        return next((ln.split(":", 1)[1] for ln in out.splitlines() if ln.startswith("yes:")), "")
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def launch(*cmd):
+    subprocess.Popen(["uwsm", "app", "--", *cmd], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def main():
+    if close_pidfile(PIDFILE, "fw-warp-panel"):
+        return
+    at_bar = bool(os.environ.get("FW_BAR"))
+    subprocess.run(["pkill", "-x", "fuzzel"])  # close any open bar menu
+    for gui in ("fw-display-panel", "fw-wallpaper"):
+        close_pidfile(os.path.join(RUNTIME, f"{gui}.pid"), gui)
+    with open(PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    ui_theme.install()
+    panel = Panel(at_bar)
+    panel.connect("destroy", Gtk.main_quit)
+    try:
+        from gi.repository import GLibUnix
+        GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
+    except ImportError:
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, Gtk.main_quit)
+    panel.show_all()
+    panel.choose_view()
+    panel.poll()
+    try:
+        Gtk.main()
+    finally:
+        try:
+            if open(PIDFILE).read() == str(os.getpid()):
+                os.remove(PIDFILE)
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    sys.exit(main())

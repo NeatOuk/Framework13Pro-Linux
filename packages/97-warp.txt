@@ -1,0 +1,6 @@
+# Cloudflare WARP (user-approved, vendor repo repos/cloudflare-warp.repo = pkg.cloudflareclient.com, Fedora 44 builds).
+# warp-svc (system service) + warp-cli; the bar's cloud icon (fw-warp-panel) drives it. Their own tray app
+# (warp-taskbar) is hidden inside Hyprland by an autostart override.
+cloudflare-warp
+# Fedora: hard dependency of cloudflare-warp, listed because weak deps are off and it isn't on a default install
+nss-tools
