@@ -60,13 +60,17 @@ fi
 cd "$SRC"
 
 has_dm() { [[ -e /etc/systemd/system/display-manager.service ]]; }
+current_dm() { basename "$(readlink -f /etc/systemd/system/display-manager.service)" .service; }
+# Login screen: greetd + tuigreet (a plain text login that matches the desktop), also replacing GDM/SDDM (user
+# decision, an exception to rule 3a: the old one is only disabled, not removed). KEEP_DM=1 keeps an existing one.
+use_greetd() { [[ ${KEEP_DM:-0} != 1 ]] || ! has_dm; }
 has_ppd() { rpm -q power-profiles-daemon >/dev/null 2>&1; }
 
 cat <<EOF
 
 fw13-hypr installer — Fedora ${FEDORA} (${VARIANT_ID:-${VARIANT:-unknown edition}})
   Adds repos:   RPM Fusion free+nonfree, COPR ${HYPR_COPR:-<none>}, Microsoft (VS Code), mise
-  Login screen: $(has_dm && echo "keep existing $(readlink -f /etc/systemd/system/display-manager.service | xargs basename) — adds a 'Hyprland (uwsm)' session" || echo "install greetd + tuigreet")
+  Login screen: $(if ! use_greetd; then echo "keep existing $(current_dm) — adds a 'Hyprland (uwsm)' session (KEEP_DM=1)"; elif has_dm && [[ $(current_dm) != greetd ]]; then echo "greetd + tuigreet text login; disables $(current_dm) (not removed; KEEP_DM=1 keeps it)"; else echo "greetd + tuigreet text login"; fi)
   Power:        $(has_ppd && echo "keep power-profiles-daemon" || echo "install tuned + tuned-ppd")
   Removes:      nothing (ffmpeg-free is swapped for RPM Fusion ffmpeg)
 EOF
@@ -108,7 +112,7 @@ system_phase() {
 
   say "Packages (weak dependencies off — only what's listed)"
   local lists=(00-core.txt 10-desktop.txt 20-input-fonts.txt 30-apps.txt 60-framework.txt 70-dev.txt 80-shells.txt 90-backup.txt 95-citadel.txt 96-theme.txt 97-warp.txt)
-  has_dm  || lists+=(15-login.txt)
+  use_greetd && lists+=(15-login.txt)
   has_ppd || lists+=(61-power.txt)
   local main gaming codecs
   mapfile -t main   < <(cd packages && pkgs "${lists[@]}")
@@ -151,13 +155,31 @@ DesktopNames=Hyprland
 EOF
   fi
 
-  if ! has_dm; then
+  # GDM: preselect "Hyprland (uwsm)" for everyone who hasn't picked a session yet (user decision; GDM otherwise
+  # defaults to GNOME). Only an added line in its [daemon] section, and only if no default is set already.
+  local gdm=/etc/gdm/custom.conf
+  if [[ -f $gdm ]] && ! grep -q '^ *DefaultSession *=' "$gdm"; then
+    if grep -q '^\[daemon\]' "$gdm"; then
+      $SUDO sed -i '/^\[daemon\]/a DefaultSession=hyprland-uwsm.desktop' "$gdm"
+    else
+      printf '\n[daemon]\nDefaultSession=hyprland-uwsm.desktop\n' | $SUDO tee -a "$gdm" >/dev/null
+    fi
+  fi
+
+  if use_greetd; then
     say "Login: greetd + tuigreet"
     local cfg=/etc/greetd/config.toml
     $SUDO sed -i 's|^command *=.*|command = "tuigreet --time --remember --remember-session --asterisks --sessions /usr/share/wayland-sessions:/usr/local/share/wayland-sessions --cmd \\"uwsm start hyprland.desktop\\""|' "$cfg"
     local gu; gu="$(awk -F'"' '/^user *=/{print $2}' "$cfg")"
     echo "d /var/cache/tuigreet 0755 ${gu:-greetd} ${gu:-greetd} -" | $SUDO tee /etc/tmpfiles.d/tuigreet.conf >/dev/null
-    [[ $CI == 1 ]] || { $SUDO systemd-tmpfiles --create /etc/tmpfiles.d/tuigreet.conf; $SUDO systemctl enable greetd.service; $SUDO systemctl set-default graphical.target; }
+    if [[ $CI != 1 ]]; then
+      $SUDO systemd-tmpfiles --create /etc/tmpfiles.d/tuigreet.conf
+      # Only one service can own the login screen (display-manager.service): disable the old one (GDM/SDDM stay
+      # installed; switch back with: sudo systemctl disable greetd && sudo systemctl enable gdm). Takes effect at boot.
+      if has_dm && [[ $(current_dm) != greetd ]]; then $SUDO systemctl disable "$(current_dm).service"; fi
+      $SUDO systemctl enable greetd.service
+      $SUDO systemctl set-default graphical.target
+    fi
   fi
 
   if [[ $CI == 0 ]]; then

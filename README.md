@@ -22,7 +22,7 @@ Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it a
 |---|---|
 | Repos | RPM Fusion (free + nonfree), COPR `lionheartp/Hyprland` (Hyprland was dropped from Fedora's repos in F43), Microsoft (VS Code), mise |
 | Packages | `packages/*.txt`, installed with **optional dependencies off**, so only what's listed (plus hard dependencies) gets installed |
-| Login | **Keeps your existing GDM/SDDM** and adds a Hyprland session. On a Minimal install with no login screen, it installs **greetd + tuigreet** |
+| Login | A clean **text login** (greetd + tuigreet): pick your user, password, and F2 for the session (Hyprland is preselected; GNOME/KDE stay selectable). An existing GDM/SDDM is **disabled, not removed**: run `KEEP_DM=1 ./install.sh` to keep it, or switch back later with `sudo systemctl disable greetd && sudo systemctl enable gdm` |
 | Power | Keeps `power-profiles-daemon` if it's installed; otherwise installs `tuned` + `tuned-ppd`. Adds `upower` for battery info and the charge limit |
 | Codecs | Replaces `ffmpeg-free` with RPM Fusion `ffmpeg`, the only package it swaps out |
 | Fingerprint | Turns on fingerprint for sudo, login and polkit (`authselect … with-fingerprint`) |
