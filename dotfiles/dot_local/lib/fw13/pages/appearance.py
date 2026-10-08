@@ -290,22 +290,10 @@ class AppearancePage(HyprPage):
             hint="Its default Dark/Light theme takes these colours (Hyprland only; removed at logout and when "
                  "switched off). Settings Sync may copy them to other machines; after a crash GNOME keeps them "
                  "until the next Hyprland login. settings.json with comments is left alone."))
-        chromium = Gtk.Switch()
-        chromium.set_active(bool(store.get(theme.CHROMIUM_FORCE)))
-        chromium.connect("notify::active", lambda s, _p: self.set_chromium(s.get_active()))
-        controls.append(self.row(
-            "Chromium", chromium,
-            hint="Use GTK mode, replacing a theme or colour chosen in Chromium. Set at login or now if Chromium is "
-                 "closed; switching off does not bring the old theme back."))
         if store.get(theme.CHROMIUM_HINT):
-            self.row("Chromium", None, hint="Chromium protects its theme setting: choose GTK in its Settings → Appearance")
+            self.row("Chromium", None, hint="Choose GTK in Chromium's Settings → Appearance to use these colours")
         for w in controls:
             w.set_sensitive(not self.theming)
-
-    def set_chromium(self, on):
-        self.show_status("Chromium GTK mode on…" if on else "Chromium GTK mode off…", "dim")
-        background(lambda: theme.set_chromium(on), lambda note: self.show_status(
-            note, "bad" if note and note.startswith(("Could not", "Error")) else "dim"))
 
     def set_vscode(self, on):
         if self.vscode_busy:  # one at a time, in order: the last flip wins
