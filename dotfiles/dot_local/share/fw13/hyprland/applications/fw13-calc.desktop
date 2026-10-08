@@ -1,0 +1,11 @@
+[Desktop Entry]
+# Hyprland only: this folder is on XDG_DATA_DIRS in the Hyprland session (uwsm/env-hyprland), not in GNOME/KDE.
+Type=Application
+Name=Calculator
+GenericName=Calculator
+Comment=Quick sums, units and currencies in a prompt (SUPER+=); Enter copies the answer
+Exec=fw-calc
+Icon=accessories-calculator
+Terminal=false
+Categories=Utility;Calculator;
+Keywords=calc;calculator;maths;math;qalc;units;convert;currency;

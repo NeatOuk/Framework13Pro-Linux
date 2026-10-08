@@ -1,0 +1,11 @@
+[Desktop Entry]
+# Hyprland only: this folder is on XDG_DATA_DIRS in the Hyprland session (uwsm/env-hyprland), not in GNOME/KDE.
+Type=Application
+Name=Emoji
+GenericName=Emoji Picker
+Comment=Search emoji by name; the pick is pasted into the window you were in (SUPER+.)
+Exec=fw-emoji
+Icon=face-smile
+Terminal=false
+Categories=Utility;
+Keywords=emoji;emoticon;smiley;symbol;character;

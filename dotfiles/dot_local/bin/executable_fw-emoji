@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Emoji picker (SUPER+period): search by name or keyword in fuzzel; the pick is copied and pasted into the window you
+were in, the same way as fw-clipboard (Ctrl+Shift+V in terminals, Ctrl+V elsewhere). On an empty workspace, or outside
+Hyprland, it is only copied.
+
+The list is GTK3's own emoji data (the resource /org/gtk/libgtk/emoji/en.data: names + keywords, what GTK's emoji
+chooser uses; no extra package), with Python's unicodedata names as the fallback. It is built once into
+~/.cache/fw13/emoji.txt and rebuilt when GTK or Python's Unicode data changes. fuzzel's own --cache puts the ones you
+use most at the top.
+
+  fw-emoji           the picker
+  fw-emoji --list    print the list (emoji, two spaces, name, keywords) and exit
+"""
+import os
+import re
+import subprocess
+import sys
+import time
+import unicodedata
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "fw13")
+CACHE = os.path.join(CACHE_DIR, "emoji.txt")
+FUZZEL_CACHE = os.path.join(CACHE_DIR, "fuzzel-emoji")      # fuzzel's frecency for this menu
+VERSION = "1"
+GTK_LIBS = ["/usr/lib64/libgtk-3.so.0", "/usr/lib/libgtk-3.so.0", "/usr/lib/x86_64-linux-gnu/libgtk-3.so.0"]
+GTK_COMPONENTS = 2      # GTK group "Component": bare skin tones and hair parts, hidden in GTK's chooser too
+TERMINALS = re.compile(r"^(kitty|foot|alacritty|ghostty|wezterm-gui|konsole|gnome-terminal-.*|ptyxis.*)$")
+# Unicode ranges with emoji, for the fallback (pictographs, transport, supplemental symbols, dingbats, misc symbols).
+RANGES = [(0x1F300, 0x1F5FF), (0x1F600, 0x1F64F), (0x1F680, 0x1F6FF), (0x1F900, 0x1F9FF), (0x1FA70, 0x1FAFF),
+          (0x2600, 0x26FF), (0x2700, 0x27BF)]
+
+
+def gtk_stamp():
+    for p in GTK_LIBS:
+        try:
+            return str(int(os.stat(p).st_mtime))
+        except OSError:
+            pass
+    return "0"
+
+
+def header():
+    return f"# fw13-emoji {VERSION} gtk={gtk_stamp()} unicode={unicodedata.unidata_version}"
+
+
+def line(emoji, name, keywords=()):
+    words = [k for k in dict.fromkeys(keywords) if k.lower() not in name.lower().split()]
+    return f"{emoji}  {name}" + (f"  ({', '.join(words)})" if words else "")
+
+
+def from_gtk():
+    """Lines from GTK3's emoji resource, or None when GTK3/the resource isn't there."""
+    try:
+        import gi
+        gi.require_version("Gtk", "3.0")
+        gi.require_version("Gdk", "3.0")
+        from gi.repository import Gio, GLib, Gtk  # noqa: F401  (importing Gtk registers its resources)
+        data = Gio.resources_lookup_data("/org/gtk/libgtk/emoji/en.data", Gio.ResourceLookupFlags.NONE)
+    except Exception:  # no gi/GTK3, or the resource is missing (GLib.Error)
+        return None
+    for fmt in ("a(ausasu)", "a(auss)"):  # GTK 3.24.2x+, older 3.24
+        try:
+            items = GLib.Variant.new_from_bytes(GLib.VariantType.new(fmt), data, True).unpack()
+            break
+        except Exception:
+            items = None
+    if not items:
+        return None
+    out = []
+    for item in items:
+        codes, name = item[0], item[1]
+        if fmt == "a(ausasu)":
+            keywords, group = item[2], item[3]
+            if group == GTK_COMPONENTS:
+                continue
+        else:
+            keywords = [item[2].strip(":").replace("_", " ")] if item[2] else []
+        codes = [c for c in codes if c]  # 0 = where GTK would put a skin tone: none here
+        if not codes:
+            continue
+        emoji = "".join(map(chr, codes))
+        if len(codes) == 1 and codes[0] < 0x1F000:
+            emoji += "️"  # text-by-default symbols (☺ ❤ ☀): ask for the emoji form, as GTK's chooser does
+        out.append(line(emoji, name, keywords))
+    return out
+
+
+def from_unicodedata():
+    out = []
+    for lo, hi in RANGES:
+        for cp in range(lo, hi + 1):
+            name = unicodedata.name(chr(cp), "")
+            if name and unicodedata.category(chr(cp)) == "So":
+                out.append(line(chr(cp) + ("️" if cp < 0x1F000 else ""), name.lower()))
+    return out
+
+
+def load():
+    """The list (cached). Never fails: worst case the fallback list, uncached."""
+    head = header()
+    try:
+        with open(CACHE, encoding="utf-8") as f:
+            text = f.read()
+        if text.startswith(head + "\n"):
+            return text.splitlines()[1:]
+    except (OSError, UnicodeDecodeError):
+        pass
+    lines = from_gtk() or from_unicodedata()
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        tmp = CACHE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(head + "\n" + "\n".join(lines) + "\n")
+        os.replace(tmp, CACHE)
+    except OSError:
+        pass
+    return lines
+
+
+def emoji_of(pick):
+    """The emoji at the start of a list line (emoji never contain an ASCII space)."""
+    return pick.split(" ", 1)[0].strip()
+
+
+def focused():
+    """(address, pid) of the window focused now, before fuzzel takes the keyboard; (None, None) if none."""
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        return None, None
+    from fw13.hypr import hj
+    w = hj("activewindow")
+    addr = w.get("address", "") if isinstance(w, dict) else ""
+    return (addr, w.get("pid")) if re.fullmatch(r"0x[0-9a-fA-F]+", addr or "") else (None, None)
+
+
+def fuzzel_free():
+    """fuzzel allows one instance (lock in $XDG_RUNTIME_DIR): wait for the previous menu to exit, at most 2 s."""
+    for _ in range(40):
+        if subprocess.run(["pgrep", "-x", "fuzzel"], stdout=subprocess.DEVNULL).returncode != 0:
+            return
+        time.sleep(0.05)
+
+
+def paste(addr, pid):
+    from fw13.hypr import dispatch, q
+    try:
+        with open(f"/proc/{int(pid)}/comm", encoding="utf-8") as f:
+            comm = f.read().strip()
+    except (OSError, TypeError, ValueError):
+        comm = ""
+    mods = "CTRL SHIFT" if TERMINALS.match(comm) else "CTRL"
+    time.sleep(0.1)  # let fuzzel close and the clipboard settle
+    # key must be lowercase: "V" is silently not delivered (see fw-clipboard).
+    dispatch(f"hl.dsp.send_shortcut({{ mods = {q(mods)}, key = 'v', window = {q('address:' + addr)} }})")
+
+
+def run():
+    lines = load()
+    addr, pid = focused()
+    fuzzel_free()
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        cache = ["--cache", FUZZEL_CACHE]
+    except OSError:
+        cache = []
+    r = subprocess.run(["fuzzel", "--dmenu", "--prompt", "Emoji › ", "--width", "60", "--only-match", *cache],
+                       input="\n".join(lines) + "\n", capture_output=True, text=True)
+    emoji = emoji_of(r.stdout) if r.returncode == 0 else ""
+    if not emoji:
+        return 0
+    subprocess.run(["wl-copy", "--", emoji], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if addr:
+        paste(addr, pid)
+    return 0
+
+
+def main(argv):
+    if argv == ["--list"]:
+        print("\n".join(load()))
+        return 0
+    if argv:
+        print("usage: fw-emoji [--list]", file=sys.stderr)
+        return 2
+    return run()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

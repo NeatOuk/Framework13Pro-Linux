@@ -2,3 +2,5 @@
 chromium
 # Vendor official (packages.microsoft.com)
 code
+# Fedora official (fw-calc: units, currencies, percentages)
+qalculate
