@@ -26,6 +26,7 @@ install.sh                 preflight → repos → packages → system files →
                            flags: --yes --ci --system-only --user-only; env: HYPR_COPR, REPO_URL, CHECKOUT
 packages/NN-*.txt          one package per line, '#' comments on their own line only (pkgs() splits on whitespace); 15-login, 61-power conditional; matugen is installed separately as `'matugen >= 4'` (needs the COPR)
 repos/*.repo               vendor repos (vscode, mise)
+rpm/                       specs we build locally: telegram-desktop-official.spec (build_telegram_rpm in install.sh)
 system/usr/local/bin/      fw-timeshift-setup, fw-timeshift-restore (rsync-mode restore on Fedora's root/home btrfs: snapshot root, rsync onto
                            the copy, swap by rename; kernels side by side + grubby; holds Timeshift's lock; undo), fw-health-root
 system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/lib/fw13/health-root.json, 0644; install.sh copies the folder only if it has files)
@@ -79,6 +80,7 @@ docs/FIRST-INSTALL.md      what a fresh Framework install looks like + Stage 7 h
 | Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm), `cloudflare-warp` (pkg.cloudflareclient.com, `repos/cloudflare-warp.repo`, `packages/97-warp.txt` + its hard dep `nss-tools` from Fedora; installer enables `warp-svc`) |
 | mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship, opencode (self-update off) |
 | Built from source as RPMs (owner's repos) | **Citadel** outbound firewall: `citadel` (github.com/NeatOuk/citadel-app, `main`, release stamped `.gitYYYYMMDD.<sha>`) + `citadel-helper` (github.com/NeatOuk/citadel-helper, tag `v1.3.2`), built by `build_citadel_rpm` in install.sh with their own .spec files (no prebuilt packages exist); build tools + PySide6 in `packages/95-citadel.txt`. Override with `CITADEL_APP_REF`/`CITADEL_HELPER_REF`. User phase enables `citadel.service` and `citadel enforce on` (user decision). The helper's polkit rule lets wheel use it without a password (by design). |
+| Repackaged official binary (telegram.org) | **Telegram Desktop** (user decision: the official build, as an RPM). `build_telegram_rpm` reads the version from telegram.org's download redirect, downloads the tarball (no checksum is published: HTTPS only) plus the launcher entry, D-Bus service and icons from github.com/telegramdesktop/tdesktop at the same tag, and builds `telegram-desktop-official` (`/opt/telegram`, `/usr/bin/Telegram`, `Conflicts: telegram-desktop`). Its self-updater is off via `externalupdater.d`; re-running install.sh rebuilds when telegram.org has a newer version, otherwise it's a no-op |
 | Upstream installer | Claude Code via `curl -fsSL https://claude.ai/install.sh \| bash` → `~/.local/bin/claude`, self-updating. Not via mise npm: that skipped the package's postinstall, so no binary |
 
 Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freeworld`, toolbox, Docker CE, ProtonUp-Qt, Nerd Fonts, snapper/btrfs-assistant, Qt5 removal, CJK font removal, swayosd COPR, Arch support, bootc/ISO image.
@@ -124,7 +126,7 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 
 ## Known unverified
 
-Package names resolved on Fedora 44 + lionheartp in the first CI build (only swayosd failed → dropped). Unverified: whether the COPR ships `hyprland-uwsm.desktop` (installer adds one in /usr/local/share/wayland-sessions if not), Timeshift rsync filter behaviour on a real system.
+Package names resolved on Fedora 44 + lionheartp in the first CI build (only swayosd failed → dropped). Unverified: whether the COPR ships `hyprland-uwsm.desktop` (installer adds one in /usr/local/share/wayland-sessions if not), Timeshift rsync filter behaviour on a real system, Telegram honouring `externalupdater.d` (no update prompt) and not adding its own `org.telegram.desktop._<hash>.desktop` next to the packaged one.
 
 ## License
 

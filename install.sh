@@ -97,6 +97,30 @@ build_citadel_rpm() {
   ls -t "$top"/RPMS/noarch/"${name%-app}"-[0-9]*"$dist".noarch.rpm 2>/dev/null | head -1
 }
 
+# ============================================================================
+# build_telegram_rpm → prints the built RPM's path, or nothing when the installed one is already current.
+# Telegram Desktop from telegram.org (user decision: the official build, packaged as an RPM so dnf owns it).
+# The tarball's version comes from telegram.org's redirect; launcher entry, D-Bus service and icons come from
+# Telegram's own repo at the same tag. Spec: rpm/telegram-desktop-official.spec.
+build_telegram_rpm() {
+  local top="$STATE_DIR/telegram" url ver have f
+  url="$(curl -fsIL -o /dev/null -w '%{url_effective}' https://telegram.org/dl/desktop/linux)" || return 1
+  ver="${url##*-x64-}"; ver="${ver%.tar.xz}"
+  [[ $ver =~ ^[0-9]+(\.[0-9]+)+$ ]] || { warn "unexpected Telegram download URL: $url" >&2; return 1; }
+  have="$(rpm -q --qf '%{VERSION}' telegram-desktop-official 2>/dev/null || true)"
+  [[ $have == "$ver" ]] && return 0
+  mkdir -p "$top"/{SOURCES,RPMS,BUILD,SRPMS,SPECS}
+  curl -fsSL -o "$top/SOURCES/td-setup-linux-x64-$ver.tar.xz" "$url" || return 1
+  local gh="https://raw.githubusercontent.com/telegramdesktop/tdesktop/v$ver"
+  for f in lib/xdg/org.telegram.desktop.desktop lib/xdg/org.telegram.desktop.service \
+           Telegram/Resources/art/icon{16,32,48,64,128,256,512}.png; do
+    curl -fsSL -o "$top/SOURCES/${f##*/}" "$gh/$f" || return 1
+  done
+  rpmbuild -bb --quiet --define "_topdir $top" --define "tg_version $ver" --define "dist .fc$FEDORA" \
+    rpm/telegram-desktop-official.spec >&2 || return 1
+  ls -t "$top"/RPMS/x86_64/telegram-desktop-official-"$ver"-*.rpm 2>/dev/null | head -1
+}
+
 system_phase() {
   rpm -qa --qf '%{NAME}\n' | sort > "$STATE_DIR/rpms-before.txt"
   local DNF="$SUDO dnf -y --setopt=install_weak_deps=False"
@@ -136,6 +160,11 @@ system_phase() {
                       build_citadel_rpm citadel-helper "$CITADEL_HELPER_REPO" "$CITADEL_HELPER_REF" packaging/rpm/citadel-helper.spec)
   (( ${#rpms[@]} == 2 )) || die "Citadel RPM build failed (see above)"
   $DNF install "${rpms[@]}"   # same version: no-op; newer build: upgrade
+
+  say "Telegram Desktop — official telegram.org build, packaged as an RPM"
+  local tg
+  tg="$(build_telegram_rpm)" || die "Telegram RPM build failed (see above)"
+  if [[ -n $tg ]]; then $DNF install "$tg"; else echo "telegram-desktop-official is current"; fi
 
   say "System files"
   $SUDO install -m 0755 system/usr/local/bin/* /usr/local/bin/

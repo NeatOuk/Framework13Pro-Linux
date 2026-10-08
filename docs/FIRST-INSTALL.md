@@ -66,5 +66,6 @@ These could not be tested on other hardware:
 - [ ] Fingerprint at sudo and at the login screen
 - [ ] Steam, Battle.net (Lutris), VA-API (`vainfo` via distrobox)
 - [ ] Ollama on the Radeon 890M (ROCm)
+- [ ] Telegram: one launcher entry, no "update available" prompt from its own updater
 - [ ] Auto-brightness curve
 - [ ] `sudo fw-timeshift-restore --list` and a dry run; a real restore + `undo` when comfortable
