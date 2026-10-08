@@ -20,7 +20,26 @@ from .common import Page, label, launch, wrap  # noqa: E402
 from .system import bg  # noqa: E402
 
 OK_DOT = "●"
-RELOGIN = "Saved — log out and back in to use the new keys"
+# Typed into a bash -c of the restore terminal (no secrets: the env file is sourced, never put in argv).
+RESTORE_SH = r"""set -a
+. "$HOME/.config/restic/env" || { echo "No ~/.config/restic/env — set the repository in Settings → fw13."
+                                  read -rp "Press Enter to close. " _; exit 1; }
+set +a
+cat <<'EOT'
+restic is ready for this repository (password and keys are in this shell's environment only).
+
+  restic snapshots                        list the backups
+  mkdir -p ~/restic-mnt && restic mount ~/restic-mnt
+                                          browse snapshots/latest/home/... as folders, copy files back,
+                                          then Ctrl+C to unmount
+  restic restore latest --target ~/restore --include "$HOME/Documents/file"
+                                          restore one path into ~/restore, then move it where it belongs
+
+On a new laptop: install restic, then export RESTIC_REPOSITORY, RESTIC_PASSWORD (from your password manager)
+and, for s3:, AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_DEFAULT_REGION before the commands above.
+EOT
+exec bash -i"""
+RELOGIN = "Saved — log out and back in, then restart the app, to use the new keys"
 
 
 def _buttons(*widgets):
@@ -182,7 +201,8 @@ class Fw13Page(Page):
     def render_restic(self, rs):
         repo, pw = rs["repository"], rs["password"]
         if not repo["set"]:
-            self.item("Repository", "Daily backup of your home folder (sftp:, s3:, b2:, rest: or a local path)",
+            self.item("Repository",
+                      "Daily backup of your home folder (sftp:, s3: incl. Backblaze B2, rest: or a local path)",
                       [button("Set up", self.edit_restic, "primary")], lead="Not set", lead_cls="dim")
             return
         self.item("Repository", repo["display"],
@@ -191,6 +211,15 @@ class Fw13Page(Page):
                   lead=f"{OK_DOT} Set")
         self.item("Password", f"{pw['len']} characters" if pw["set"] else "Needed to open the repository",
                   [], lead=_set_text(pw), lead_cls="ok" if pw["set"] else "warn")
+        needs = repo["needs"]
+        if needs:
+            cr = self.st["status"]["restic_creds"]
+            full = all(cr[k]["set"] for k in setup.S3_REQUIRED)
+            self.item("S3 keys", "Access key ID and secret access key" +
+                      (" · region set" if cr["aws_default_region"]["set"] else ""), [],
+                      lead=f"{OK_DOT} Set" if full else "Missing", lead_cls="ok" if full else "warn")
+        elif needs is None:
+            self.item("Keys", setup.unsupported_message(repo["display"]), [], lead="Not supported", lead_cls="warn")
         b = self.st["backup"] or {}
         sw = Gtk.Switch()
         sw.set_active(bool(b.get("timer")))
@@ -217,6 +246,9 @@ class Fw13Page(Page):
                                                            "-u", setup.UNIT, "-n", "200", "--no-pager")))
         tools.set_halign(Gtk.Align.START)
         self.add_widget(tools)
+        self.item("Restore", "A terminal with the repository loaded: list snapshots, browse them as folders "
+                  "(restic mount) or restore a path into ~/restore",
+                  [button("Open terminal", lambda: launch("kitty", "-e", "bash", "-c", RESTORE_SH))])
 
     def render_shell(self):
         shells, cur = self.st["shells"], self.st["shell"]
@@ -274,10 +306,12 @@ class Fw13Page(Page):
         self.render()
 
     # --- key dialogs ---------------------------------------------------------
-    def ask(self, title, fields, note="", generate=None):
+    def ask(self, title, fields, note="", generate=None, visible=None, presets=(), extra=None):
         """Modal dialog -> {key: value} or None. fields: [(key, placeholder, secret, required)]. Entries start
         empty; a blank optional field means "keep the current value". generate: key filled by Generate. The
-        repository is shown as typed, but hidden like a secret while it holds user:pass@."""
+        repository is shown as typed, but hidden like a secret while it holds user:pass@. visible({key: text}) ->
+        the keys shown (hidden ones are neither checked nor returned); presets: [(label, {key: text}, hint)] fill
+        entries, and the first <…> part is selected for typing over; extra({key: text}) -> an error or ""."""
         dlg = Gtk.Dialog(transient_for=self.get_toplevel(), modal=True, title=title)
         dlg.get_style_context().add_class("panel")
         dlg.set_default_size(420, -1)
@@ -289,12 +323,38 @@ class Fw13Page(Page):
         if note:
             area.pack_start(label(note, "dim", wrap=True, max_width_chars=50), False, False, 0)
         entries = {}
+        hint = label("", "dim", wrap=True, max_width_chars=50)
+        if presets:
+            row = Gtk.Box(spacing=6)
+            row.pack_start(label("Presets:", "dim"), False, False, 0)
+            for text, values, tip in presets:
+                row.pack_start(button(text, lambda v=values, t=tip: preset(v, t)), False, False, 0)
+            area.pack_start(row, False, False, 0)
+            area.pack_start(hint, False, False, 0)
         for key, placeholder, secret, _req in fields:
             e = Gtk.Entry(visibility=not secret, placeholder_text=placeholder, max_length=512)
             if secret:
                 e.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+            e.set_no_show_all(True)
             entries[key] = e
             area.pack_start(e, False, False, 0)
+
+        def texts():
+            return {k: e.get_text() for k, e in entries.items()}
+
+        def shown():
+            return set(entries) if visible is None else visible(texts())
+
+        def preset(values, tip):
+            for k, v in values.items():
+                entries[k].set_text(v)
+            hint.set_text(tip)
+            for key, *_r in fields:
+                e, t = entries[key], entries[key].get_text()
+                if "<" in t and ">" in t[t.index("<"):] and e.get_visible():
+                    e.grab_focus()
+                    e.select_region(t.index("<"), t.index(">", t.index("<")) + 1)
+                    break
         show = Gtk.CheckButton(label="Show")
 
         def update_visibility(*_):
@@ -319,16 +379,26 @@ class Fw13Page(Page):
         dlg.set_default_response(Gtk.ResponseType.OK)
 
         def check():
+            vis = shown()
+            if extra:
+                msg = extra({k: v for k, v in texts().items() if k in vis})
+                if msg:
+                    return False, msg
             for key, _p, secret, req in fields:
+                if key not in vis:
+                    continue
                 v = entries[key].get_text()
                 if req and not v:
                     return False, ""
                 good, msg = setup.validate(v, secret)
                 if not good:
                     return False, msg
-            return any(e.get_text() for e in entries.values()), ""
+            return any(entries[k].get_text() for k in vis), ""
 
         def changed(*_):
+            vis = shown()
+            for k, e in entries.items():
+                e.set_visible(k in vis)
             update_visibility()
             good, msg = check()
             ok.set_sensitive(good)
@@ -336,16 +406,20 @@ class Fw13Page(Page):
         for e in entries.values():
             e.connect("changed", changed)
             e.connect("activate", lambda _e: check()[0] and dlg.response(Gtk.ResponseType.OK))
-        changed()
         dlg.show_all()
+        changed()
         self.confirming = True
         try:
             resp = dlg.run()
         finally:
             self.confirming = False
-        result = {k: e.get_text() for k, e in entries.items() if e.get_text()}
+        # Read and check the fields before destroy(): afterwards they read as empty, the required-field check
+        # failed and Save silently saved nothing.
+        good = resp == Gtk.ResponseType.OK and check()[0]
+        vis = shown()
+        result = {k: e.get_text() for k, e in entries.items() if e.get_text() and k in vis}
         dlg.destroy()
-        return result if resp == Gtk.ResponseType.OK and check()[0] else None
+        return result if good else None
 
     def edit_chromium(self):
         ch = self.st["status"]["chromium"]  # a field is required while its own value is unset
@@ -367,21 +441,52 @@ class Fw13Page(Page):
 
     def edit_restic(self):
         rs = self.st["status"]["restic"]  # a field is required while its own value is unset
+        cr = self.st["status"]["restic_creds"]
         have = rs["repository"]["set"]
+        current = rs["repository"]["display"]
+
+        def repo_of(t):
+            return t.get("repository") or current
+
+        def visible(t):  # the S3 key fields only while the repository is s3:
+            return {"repository", "password", *(setup.restic_needs(repo_of(t)) or ())}
+
+        def extra(t):
+            if any("<" in v or ">" in v for v in t.values()):
+                return "Fill in the <…> parts"
+            if repo_of(t) and setup.restic_needs(repo_of(t)) is None:
+                return setup.unsupported_message(repo_of(t))
+            return ""
         got = self.ask("Backups (restic)",
                        [("repository", "Repository, e.g. sftp:nas:/backup/fw13", False, not have),
-                        ("password", "Repository password", True, not rs["password"]["set"])],
+                        ("password", "Repository password", True, not rs["password"]["set"]),
+                        ("aws_access_key_id", "S3 access key ID (B2: keyID)", True,
+                         not cr["aws_access_key_id"]["set"]),
+                        ("aws_secret_access_key", "S3 secret access key (B2: applicationKey)", True,
+                         not cr["aws_secret_access_key"]["set"]),
+                        ("aws_default_region", "S3 region, e.g. us-west-004 (optional)", False, False)],
                        note=("Leave a field blank to keep its current value. Changing the password here doesn't "
                              "change the repository's own password." if have else
-                             "A new repository gets this password; keep a copy somewhere safe — without it the "
-                             "backups can't be read. The first backup copies your whole home folder."),
-                       generate="password")
+                             "A new repository gets this password; keep a copy in your password manager — "
+                             "without it the backups can't be read. The first backup copies your whole home "
+                             "folder."),
+                       generate="password", visible=visible, extra=extra,
+                       presets=(("NAS over SFTP", {"repository": "sftp:<user>@<nas>:/backup/fw13"},
+                                 "Needs SSH key login to the NAS (ssh-copy-id <user>@<nas> once): the daily "
+                                 "backup can't answer a password prompt."),
+                                ("Backblaze B2 (S3)",
+                                 {"repository": "s3:https://s3.<region>.backblazeb2.com/<bucket>/fw13",
+                                  "aws_default_region": "<region>"},
+                                 "Bucket endpoint and region from the bucket's page; keyID and applicationKey "
+                                 "from Application Keys (limit the key to this bucket).")))
         if not got:
             return
         self.restic = None
+        values = {k: got[k] for k in setup.SCHEMA["restic"] if k in got}
+        creds = {k: got[k] for k in setup.S3_KEYS if k in got}
 
         def work():
-            ok, msg = setup.set_values("restic", got)
+            ok, msg = setup.set_restic(values, creds)
             if not ok:
                 return ok, msg
             self.restic = setup.restic_test()
@@ -401,7 +506,8 @@ class Fw13Page(Page):
             self.restic = None
             self.stop_poll()
         self.run("Removing…", lambda: setup.remove(table),
-                 "Removed — log out and back in" if table != "restic" else "Removed; daily backup is off")
+                 "Removed — log out and back in" if table != "restic" else
+                 "Removed (S3 keys too); daily backup is off")
 
     # --- restic actions -----------------------------------------------------
     def restic_test(self):

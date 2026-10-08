@@ -1,3 +1,5 @@
 # Backup — Fedora official
 timeshift
 restic
+# FUSE 3 for `restic mount` (browse snapshots as folders to restore single files)
+fuse3

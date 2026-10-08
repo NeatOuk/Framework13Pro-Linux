@@ -1,0 +1,14 @@
+{{- /* sftp: never wait for an ssh password or host-key prompt that nobody sees (key login only). */ -}}
+{{- $o := "" }}{{ if hasPrefix "sftp:" .restic.repository }}{{ $o = "-o sftp.args=-oBatchMode=yes " }}{{ end -}}
+[Unit]
+Description=restic backup of $HOME
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/restic/env
+ExecStart=/usr/bin/restic {{ $o }}backup %h --exclude-caches --exclude-file=%h/.config/restic/excludes --one-file-system
+ExecStartPost=/usr/bin/restic {{ $o }}forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+Nice=19
+IOSchedulingClass=idle
