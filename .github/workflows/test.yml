@@ -26,6 +26,7 @@ jobs:
             case "$(head -1 "$f")" in *python3*) py+=("$f") ;; *) sh+=("$f") ;; esac
           done
           shellcheck -S warning "${sh[@]}"
+          shellcheck -S warning -s bash dotfiles/dot_config/uwsm/env-hyprland   # sourced by uwsm at login (PATH, Qt, XDG_DATA_DIRS)
           mapfile -t -O "${#py[@]}" py < <(find dotfiles/dot_local/lib -name '*.py')   # shared fw13 library
           python3 -c 'import ast, sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' "${py[@]}"
       - name: config syntax

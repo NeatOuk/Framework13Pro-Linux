@@ -15,3 +15,8 @@ export XDG_DATA_DIRS="$HOME/.local/share/fw13/hyprland:${XDG_DATA_DIRS:-/usr/loc
 # instead of their own built-in schemes. Only when not set already (e.g. by the user's shell profile).
 export FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:---color=16}"
 export BAT_THEME="${BAT_THEME:-ansi}"
+
+# Our helpers (~/.local/bin: fw-*, claude) and mise's tools on PATH. uwsm exports the login shell's PATH to the
+# session, which replaces the one from environment.d/10-session.conf; a display manager that starts the session
+# through a login shell (GDM) adds these, greetd's plain shell doesn't — then every fw-* key and autostart failed.
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH" ;; esac
