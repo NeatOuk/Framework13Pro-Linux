@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Power panel (fuzzel): battery state, time to full/empty, power profile, charge limit, battery health.
+# Power panel (fuzzel): battery state, time to full/empty, power profile, charge limit, battery health,
+# and a read-only tuning readout (CPU driver/EPP/boost, platform profile, panel power savings, tuned profile).
 # Bar battery icon (FW_BAR=1 → opens below the icon); also fw-control-center → Power.
 # D-Bus only (gdbus): UPower for the battery and charge limit, and the power-profiles API, which both
 # power-profiles-daemon and tuned-ppd provide (powerprofilesctl isn't installed with tuned-ppd).
@@ -102,6 +103,14 @@ if [[ -n $all ]]; then
   esac
   rows+=("   $(prop Vendor "$all") $(prop Model "$all")${tech:+ · $tech}")
 fi
+
+# --- Tuning readout (read-only: what the profile set) -------------------------
+# fw13.power.tuning() — the same rows as Settings → Power; every value is optional.
+mapfile -t tun < <(env PYTHONPATH="$HOME/.local/lib" python3 -m fw13.power tuning 2>/dev/null)
+gauge=$''
+for i in "${!tun[@]}"; do
+  if (( i == 0 )); then rows+=("$gauge  ${tun[i]}"); else rows+=("   ${tun[i]}"); fi
+done
 
 (( ${#rows[@]} )) || { fw-notify "Power" "No battery or power profile service found"; exit 0; }
 

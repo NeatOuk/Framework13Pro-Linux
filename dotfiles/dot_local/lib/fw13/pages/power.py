@@ -1,8 +1,9 @@
-"""Power: battery state, time left/to full, health, power profile, 80 % charge limit, screen & sleep timeouts."""
+"""Power: battery state, time left/to full, health, power profile, 80 % charge limit, a read-only tuning readout,
+screen & sleep timeouts."""
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import GLib, Gtk  # noqa: E402
 
 from .. import idle, power  # noqa: E402
 from .common import Page, label  # noqa: E402
@@ -49,8 +50,13 @@ class PowerPage(Page):
                 rb = Gtk.RadioButton.new_with_label_from_widget(group, name.replace("-", " ").capitalize())
                 group = group or rb
                 rb.set_active(name == active)
-                rb.connect("toggled", lambda r, n=name: r.get_active() and power.set_profile(n))
+                rb.connect("toggled", lambda r, n=name: r.get_active() and self.switch_profile(n))
                 self.add_widget(rb)
+        tun = power.tuning_rows()
+        if tun:  # read-only: what the profile set (sysfs + tuned); refreshed with the page
+            self.heading("Tuning")
+            for title, value, hint in tun:
+                self.row(title, label(value, "dim"), hint=hint)
         self.heading("Screen & sleep")
         cur = idle.get()
         for key, text, hint in (("idle_dim", "Dim the screen after", "to 10 % brightness; any input restores it"),
@@ -67,6 +73,11 @@ class PowerPage(Page):
         if not b and not names:
             self.add_widget(label("No battery or power profile service found.", "dim"))
         self.show_all()
+
+    def switch_profile(self, name):
+        # The profile daemon applies EPP/platform profile a moment later; re-read the Tuning rows then.
+        if power.set_profile(name):
+            GLib.timeout_add(800, lambda: self.refresh() and False)
 
 
 def build():
