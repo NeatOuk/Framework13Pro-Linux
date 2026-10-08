@@ -9,6 +9,7 @@ first. The other Jarvis actions are buttons: Work on repo (with what you typed),
 OpenCode — they go through `fw-jarvis` like before.
 
   fw-jarvis-panel            open (a second call closes it); Esc closes and stops a running answer
+  fw-jarvis-panel --ask "…"  open with that question and answer it at once (crash notification → Diagnose)
 GTK3 + gtk-layer-shell, like fw-warp-panel. Colours from fw13.ui_theme.
 """
 import json
@@ -532,7 +533,11 @@ class Panel(Gtk.Window):
 
 
 def main():
-    if close_running():
+    args = sys.argv[1:]
+    ask_now = args[1] if len(args) >= 2 and args[0] == "--ask" else None
+    if ask_now:
+        close_running()  # a diagnosis replaces an open panel instead of toggling it shut
+    elif close_running():
         return 0
     subprocess.run(["pkill", "-x", "fuzzel"])  # close any open bar menu
     for gui in ("fw-display-panel", "fw-warp-panel", "fw-wallpaper"):
@@ -549,6 +554,9 @@ def main():
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, panel.quit)
     panel.show_all()
     panel.entry.grab_focus()
+    if ask_now:  # fw-jarvis-panel --ask "…" (crash Diagnose): fill the box and start right away
+        panel.entry.set_text(ask_now)
+        GLib.idle_add(lambda: (panel.ask(), False)[1])
     try:
         Gtk.main()
     finally:

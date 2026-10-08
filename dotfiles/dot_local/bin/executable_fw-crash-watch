@@ -3,7 +3,7 @@
 
 Follows the journal for systemd-coredump ("process dumped core") and "unit entered failed state" entries,
 system and user. The notification's Diagnose button writes a report to $XDG_RUNTIME_DIR/jarvis/ and runs
-`fw-jarvis diagnose <report>`, which asks which agent should read it.
+`fw-jarvis diagnose <report>`, which opens the Jarvis panel and diagnoses it inline (fixes as Run/Skip cards).
 Ignore list: ~/.config/fw-crash-watch/ignore (one exe name / unit glob per line).
 """
 import fnmatch

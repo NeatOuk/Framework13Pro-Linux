@@ -63,13 +63,12 @@ launch() {
 }
 
 diagnose() {
-  local file=$1 target
+  local file=$1
   [[ -r $file ]] || { fw-notify "Jarvis" "Crash report not found"; return; }
-  target="$(pick_agent)" || return 0
-  [[ -n $target ]] || return 0
-  launch "$JDIR" "$target" "Read the crash report at $file. Explain in plain words what crashed and the most \
-likely cause, then suggest a fix. You may use read-only commands (journalctl, coredumpctl, systemctl status, \
-rpm -q) to dig deeper. Do not change anything — no installs, edits, restarts or deletions — without asking me first."
+  # The Jarvis panel answers inline and right away; fixes come as Run/Skip cards (nothing runs without a click).
+  exec fw-jarvis-panel --ask "Something crashed. Read the crash report at $file, then check whatever else helps \
+(journalctl, coredumpctl info, the app's own log files). Explain in plain words what happened and the most likely \
+cause. If there's a fix, propose it as action cards, one step at a time."
 }
 
 main() {
