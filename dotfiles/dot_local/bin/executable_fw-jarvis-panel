@@ -41,7 +41,7 @@ PANEL_W = 680
 
 # What the inline agent may do without asking (one-shot mode can't ask): read anywhere (--add-dir /) except the
 # secret files below, search, and read-only commands, including a few read-only ones as root through passwordless
-# sudo (`sudo -n` fails cleanly where that isn't set up). No cat/head/tail/grep in Bash: they would get around the
+# sudo (`sudo -n` fails cleanly where that isn't set up; root action cards go through pkexec instead). No cat/head/tail/grep in Bash: they would get around the
 # Read denials, and the Read/Grep tools do the same job.
 READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "LS",
                    "Bash(journalctl:*)", "Bash(coredumpctl:*)", "Bash(systemctl status:*)",
@@ -73,13 +73,21 @@ INLINE_NOTE = ("You are answering inline in Jarvis's small panel. Be brief and p
                "\"why\": \"what it's for\", \"how\": \"what it changes, and how to undo it\", "
                "\"root\": false}\n"
                "```\n"
-               "Use `sudo -n` inside the command for root steps and set root to true. One command per card, no "
+               "Use plain `sudo` inside the command for root steps and set root to true (the panel runs root cards "
+               "through pkexec, which asks the owner to authenticate). One command per card, no "
                "interactive programs, nothing that needs a terminal. Bigger jobs (edits across files, many steps) "
                "belong in \"Continue in terminal\": say so instead of proposing cards.")
 ACTION_RE = re.compile(r"```jarvis-action[ \t]*\n(.*?)(?:\n```|\Z)", re.S)
 DANGER_RE = re.compile(r"\brm\s+-[a-zA-Z]*[rf]|\bdd\b|\bmkfs|\bwipefs\b|--force\b|\bshred\b|>\s*/dev/sd|\bfdisk\b"
                        r"|\bparted\b|\bchmod\s+-R\b|\bchown\s+-R\b|\bdnf\s+(remove|erase)\b")
 RUN_TIMEOUT = 120
+ROOT_TIMEOUT = 300   # includes the time the owner takes at the polkit prompt
+SUDO_RE = re.compile(r"\bsudo(?:\s+-n)?\s+")
+
+
+def root_argv(cmd):
+    """Root cards run under pkexec (polkit prompt: password or fingerprint), so `sudo` inside is dropped."""
+    return ["pkexec", "bash", "-c", SUDO_RE.sub("", cmd)]
 
 
 def close_running():
@@ -421,7 +429,7 @@ class Panel(Gtk.Window):
         card.pack_start(grid, False, False, 0)
         notes = []
         if a["root"]:
-            notes.append("Runs as root (passwordless sudo).")
+            notes.append("Runs as root: asks you to authenticate (password or fingerprint).")
         if DANGER_RE.search(a["command"]):
             notes.append("This can delete or overwrite data: check the command before you run it.")
         if notes:
@@ -452,12 +460,14 @@ class Panel(Gtk.Window):
 
         def work():
             try:
-                r = subprocess.run(["bash", "-c", a["command"]], capture_output=True, text=True,
-                                   timeout=RUN_TIMEOUT, stdin=subprocess.DEVNULL, cwd=os.path.expanduser("~"))
+                argv = root_argv(a["command"]) if a["root"] else ["bash", "-c", a["command"]]
+                limit = ROOT_TIMEOUT if a["root"] else RUN_TIMEOUT
+                r = subprocess.run(argv, capture_output=True, text=True,
+                                   timeout=limit, stdin=subprocess.DEVNULL, cwd=os.path.expanduser("~"))
                 return r.returncode, (r.stdout + r.stderr)
             except subprocess.TimeoutExpired as e:
                 out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-                return None, out + f"\n(stopped after {RUN_TIMEOUT} s)"
+                return None, out + f"\n(stopped after {limit} s)"
             except OSError as e:
                 return None, str(e)
 

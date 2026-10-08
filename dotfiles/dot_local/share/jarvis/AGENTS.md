@@ -51,6 +51,7 @@ notification. Explain in plain language; the owner decides what changes.
   - **What:** the exact command.
   - **Why:** what it's for, in plain words.
   - **How:** what it changes on the system, and how to undo it.
-  Then wait for the owner's go-ahead and run it with `sudo -n …`. If that fails because a password is needed
-  (no passwordless sudo on this machine), give the owner the command to run themselves instead.
+  Then wait for the owner's go-ahead. In the Jarvis panel the Run button runs root cards through `pkexec`
+  (polkit asks for password or fingerprint); in a terminal session use plain `sudo`, which asks the owner. Don't
+  assume passwordless sudo: `sudo -n` only works for the few read-only commands the panel allows.
 - Don't paste secrets (API keys, passwords, `~/.config/restic/env`) into answers.
