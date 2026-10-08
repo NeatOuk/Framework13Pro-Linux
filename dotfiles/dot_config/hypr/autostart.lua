@@ -16,4 +16,6 @@ hl.on("hyprland.start", function()
   -- GNOME's apps hidden from the launcher in Hyprland only; Thunar / Chromium / GNOME viewers as defaults
   -- (~/.config/hyprland-mimeapps.list). Rerun at each login so package updates are picked up (fw13.defaultapps).
   hl.exec_cmd("env PYTHONPATH=$HOME/.local/lib python3 -m fw13.defaultapps")
+  -- First Hyprland login only (store key hwcheck_shown): hardware check notification, "Open" shows it in kitty
+  hl.exec_cmd("uwsm app -- fw-hwcheck --first-login")
 end)

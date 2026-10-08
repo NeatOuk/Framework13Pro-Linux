@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Hardware check for the Framework Laptop 13 (AMD): CPU, GPU, Wi-Fi, Bluetooth, battery, firmware, fingerprint,
+light sensor, suspend and power profiles, plus the things only a person can try (fw13.health, read-only).
+
+  fw-hwcheck                 the check as text (a terminal: kitty --hold fw-hwcheck)
+  fw-hwcheck --json          the same as JSON: [{id, title, status, summary, fix}]
+  fw-hwcheck --first-login   once per account (store key hwcheck_shown), from hypr/autostart.lua: a notification
+                             with the counts; "Open" shows the check in kitty
+Not a Framework 13: every hardware check is SKIP, with what was found.
+"""
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import health, notify, store  # noqa: E402
+
+KEY = "hwcheck_shown"
+
+
+def first_login():
+    if store.get(KEY) or not notify.in_hyprland():
+        return 0
+    for _ in range(60):  # mako starts with graphical-session.target, maybe a moment after Hyprland's autostart
+        if notify.available():
+            break
+        time.sleep(1)
+    else:
+        return 0  # no notification daemon: try again next login
+    results = health.hardware()
+    if not health.is_framework():
+        body = "Not a Framework Laptop 13, so the hardware checks were skipped."
+    else:
+        bad, todo = len(health.attention(results)), sum(r.status == health.MANUAL for r in results)
+        body = (f"{bad} thing(s) need attention" if bad else "Everything checked looks right") + \
+               f" · {todo} to try by hand"
+    nid = notify.send("fw-hwcheck", "Hardware check", body,
+                      [("default", "Open"), ("open", "Open"), ("dismiss", "Later")], icon="computer", timeout=30000)
+    if nid is None:
+        return 0
+    store.set(KEY, True)
+    if notify.wait(nid, limit=120) in ("default", "open"):
+        notify.launch(["kitty", "--hold", "fw-hwcheck"])
+    return 0
+
+
+def main(argv):
+    if argv[:1] == ["--first-login"]:
+        return first_login()
+    if argv[:1] == ["--json"]:
+        print(json.dumps(health.as_dicts(health.hardware()), indent=2))
+        return 0
+    if argv:
+        print("usage: fw-hwcheck [--json | --first-login]", file=sys.stderr)
+        return 2
+    if not health.is_framework():
+        print("Not a Framework Laptop 13: hardware checks are skipped (found values shown).\n")
+    print("Checking (firmware updates can take a minute)…\n", flush=True)
+    print(health.text(health.hardware(), color=sys.stdout.isatty()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

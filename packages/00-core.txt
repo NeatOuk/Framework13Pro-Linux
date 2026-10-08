@@ -23,4 +23,7 @@ qt5-qtwayland
 qt6-qtwayland
 adwaita-icon-theme
 flatpak
+# Health checks (fw-health): NVMe/SATA SMART over D-Bus, `dnf5 needs-restarting`
+udisks2
+dnf5-plugins
 git

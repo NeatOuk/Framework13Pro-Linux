@@ -1,9 +1,0 @@
-[Unit]
-Description=Timeshift scheduled snapshot (whole system)
-ConditionPathExists=/etc/timeshift/timeshift.json
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/timeshift --check --scripted
-Nice=19
-IOSchedulingClass=idle

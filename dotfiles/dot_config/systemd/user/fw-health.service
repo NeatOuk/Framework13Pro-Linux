@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily health check (report in ~/.local/state/fw13/health; notifies only on changes)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fw-health --timer
+Nice=10
+IOSchedulingClass=idle
+# fwupd lookups take up to 2 min; a notification waits up to 10 min for Diagnose
+TimeoutStartSec=20min

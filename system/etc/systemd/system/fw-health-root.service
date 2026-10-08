@@ -1,0 +1,11 @@
+[Unit]
+Description=Root-only health facts for fw-health (/var/lib/fw13/health-root.json)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fw-health-root
+StateDirectory=fw13
+StateDirectoryMode=0755
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=5min

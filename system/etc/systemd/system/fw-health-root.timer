@@ -1,0 +1,9 @@
+[Unit]
+Description=Root-only health facts for fw-health, hourly at :30 (Timeshift's own cron runs on the hour)
+
+[Timer]
+OnCalendar=*-*-* *:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

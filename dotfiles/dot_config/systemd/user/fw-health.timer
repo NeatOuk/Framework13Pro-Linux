@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily health check (fw-health)
+
+[Timer]
+# 15 min after login (Hyprland is up by then, so a notification can show), then every 24 h while logged in.
+# No OnCalendar+Persistent: that catch-up fires at login before uwsm has started the session.
+OnStartupSec=15min
+OnUnitActiveSec=1d
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

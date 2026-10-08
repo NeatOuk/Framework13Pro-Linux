@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Root-only facts for fw-health (user timer), from fw-health-root.timer at :30 each hour:
+# /var/lib/fw13/health-root.json, 0644, written atomically. Counts, dates and states only — no paths, names or
+# device ids. Timeshift: the snapshot count and the newest one (epoch seconds) from `timeshift --list`;
+# "unknown" while another Timeshift holds its lock (its hourly cron job runs on the hour), "none" when it
+# isn't set up. Read-only apart from that file. Tests: FW13_HEALTH_ROOT=<dir> (paths below it), FW13_TIMESHIFT=<cmd>.
+set -euo pipefail
+
+ROOT="${FW13_HEALTH_ROOT:-}"
+OUT="$ROOT/var/lib/fw13/health-root.json"
+CONF="$ROOT/etc/timeshift/timeshift.json"
+TIMESHIFT="${FW13_TIMESHIFT:-timeshift}"
+
+[[ -n $ROOT || $EUID == 0 ]] || { echo "fw-health-root: run as root (fw-health-root.service)" >&2; exit 1; }
+
+ts_state=none ts_count=0 ts_newest=0
+# Set up = a backup device chosen; otherwise --list would pick one and write Timeshift's config.
+if command -v "$TIMESHIFT" >/dev/null && grep -Eq '"backup_device_uuid" *: *"[^"]+"' "$CONF" 2>/dev/null; then
+  ts_state=unknown
+  if ! pgrep -x timeshift >/dev/null && ! pgrep -x timeshift-gtk >/dev/null; then
+    if out="$(LC_ALL=C timeout 180 "$TIMESHIFT" --list --scripted </dev/null 2>&1)" \
+       && ! grep -qiE 'another instance|lock file' <<<"$out"; then
+      ts_state=ok
+      while read -r d t; do
+        (( ts_count++ )) || true
+        s="$(date -d "$d ${t//-/:}" +%s 2>/dev/null)" || continue
+        if (( s > ts_newest )); then ts_newest=$s; fi
+      done < <(sed -nE 's/^[0-9]+ +> +([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{2}-[0-9]{2}-[0-9]{2}).*/\1 \2/p' <<<"$out")
+    fi
+  fi
+fi
+
+install -d -m 0755 "$(dirname "$OUT")"
+tmp="$(mktemp "$OUT.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+printf '{"version": 1, "generated": %d, "timeshift": {"state": "%s", "snapshots": %d, "newest": %d}}\n' \
+  "$(date +%s)" "$ts_state" "$ts_count" "$ts_newest" > "$tmp"
+chmod 0644 "$tmp"
+mv -f "$tmp" "$OUT"
+trap - EXIT

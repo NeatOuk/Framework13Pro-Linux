@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Daily health check (fw13.health, read-only): failed services, disk space, restic and Timeshift, reboot needed,
+firmware updates, battery and SSD health, new crashes; the journal's error count goes into the report only.
+
+  fw-health           run it, print the result and write today's report
+  fw-health --json    print the result as JSON (no report written)
+  fw-health --last    print the newest report's path
+  fw-health --timer   what fw-health.service runs (refused outside systemd): write the report and move the
+                      "new crashes since" mark; in Hyprland, notify "N things need attention" (Diagnose →
+                      fw-jarvis diagnose <report>) only when the findings changed or once a week while they last.
+                      Silent when everything is fine; no notification daemon → just the report.
+Reports: ~/.local/state/fw13/health/YYYY-MM-DD.md, the last 14 are kept.
+"""
+import glob
+import json
+import os
+import sys
+import tempfile
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import health, notify  # noqa: E402
+
+DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "fw13", "health")
+STATE = os.path.join(DIR, "state.json")
+KEEP = 14
+WEEK = 7 * 86400
+
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_atomic(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def reports():
+    return sorted(glob.glob(os.path.join(DIR, "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md")))
+
+
+def write_report(results):
+    path = os.path.join(DIR, time.strftime("%Y-%m-%d") + ".md")
+    write_atomic(path, health.markdown(results, "Health report"))
+    for old in reports()[:-KEEP]:
+        os.unlink(old)
+    return path
+
+
+def maybe_notify(results, path, state, now):
+    """Notify when the set of findings changed since the last notification, or a week after it while they last."""
+    bad = health.attention(results)
+    key = sorted(f"{r.id}:{r.status}" for r in bad)
+    if not bad:
+        if state.pop("notified", None) is not None:  # fixed: the next problem notifies at once
+            write_atomic(STATE, json.dumps(state))
+        return
+    if key == state.get("notified") and now - state.get("notified_at", 0) < WEEK:
+        return
+    if not (notify.in_hyprland() and notify.available()):
+        return  # GNOME/KDE or no daemon: state unchanged, so the next run (15 min after the next login) notifies
+    n = len(bad)
+    body = ", ".join(health.title(r.id) for r in bad)
+    nid = notify.send("fw-health", f"{n} thing{'s' if n > 1 else ''} need{'' if n > 1 else 's'} attention", body,
+                      [("default", "Diagnose"), ("diagnose", "Diagnose"), ("dismiss", "Dismiss")],
+                      urgency=notify.CRITICAL if any(r.status == health.FAIL for r in bad) else notify.NORMAL,
+                      icon="dialog-warning", timeout=30000)
+    if nid is None:
+        return
+    state.update(notified=key, notified_at=now)
+    write_atomic(STATE, json.dumps(state))
+    if notify.wait(nid, limit=600) in ("default", "diagnose"):
+        notify.launch(["fw-jarvis", "diagnose", path])
+
+
+def main(argv):
+    mode = argv[0] if argv else ""
+    if mode not in ("", "--json", "--last", "--timer"):
+        print("usage: fw-health [--json | --last | --timer]", file=sys.stderr)
+        return 2
+    if mode == "--timer" and not os.environ.get("INVOCATION_ID"):  # it moves the crash mark and notifies
+        print("fw-health --timer is for fw-health.service; run fw-health or fw-health --json", file=sys.stderr)
+        return 2
+    if mode == "--last":
+        last = reports()
+        if not last:
+            return 1
+        print(last[-1])
+        return 0
+    state, now = load_state(), time.time()
+    results = health.daily(since=state.get("last_run"), now=now)
+    if mode == "--json":
+        print(json.dumps(health.as_dicts(results), indent=2))
+        return 0
+    path = write_report(results)
+    if mode == "--timer":  # only the timer moves "new crashes since" on; a manual run leaves it for the next one
+        state["last_run"] = int(now)
+        write_atomic(STATE, json.dumps(state))
+        maybe_notify(results, path, state, now)
+        return 0
+    print(health.text(results, color=sys.stdout.isatty()))
+    print(f"\nReport: {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

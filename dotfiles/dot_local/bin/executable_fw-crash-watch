@@ -10,12 +10,12 @@ import fnmatch
 import json
 import os
 import subprocess
+import sys
 import time
 
-import gi
-
-gi.require_version("Gio", "2.0")
-from gi.repository import Gio, GLib  # noqa: E402
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import notify  # noqa: E402
+from gi.repository import Gio, GLib  # noqa: E402  (versions pinned by fw13.notify)
 
 COREDUMP = "fc2e22bc6ee647b6b90729ab34a250b1"
 UNIT_FAILED = "d9b373ed55a64feb8242e02dbe79a49c"
@@ -45,9 +45,7 @@ class Watcher:
         self.last = {}     # key → time of last notification
         self.pending = {}  # notification id → event
         self.bus = Gio.bus_get_sync(Gio.BusType.SESSION)
-        self.bus.signal_subscribe(None, "org.freedesktop.Notifications", "ActionInvoked",
-                                  "/org/freedesktop/Notifications", None, Gio.DBusSignalFlags.NONE,
-                                  self.on_action)
+        notify.on_action(self.bus, self.on_action)
         self.journal = subprocess.Popen(
             ["journalctl", "-f", "-n", "0", "-o", "json", f"MESSAGE_ID={COREDUMP}", f"MESSAGE_ID={UNIT_FAILED}"],
             stdout=subprocess.PIPE, text=True)
@@ -91,22 +89,19 @@ class Watcher:
 
     # --- notification -------------------------------------------------------------------------
     def notify(self, title, body, ev):
-        actions = ["default", "Diagnose", "diagnose", "Diagnose", "dismiss", "Dismiss"]
-        hints = {"urgency": GLib.Variant("y", 1)}
-        res = self.bus.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
-                                 "org.freedesktop.Notifications", "Notify",
-                                 GLib.Variant("(susssasa{sv}i)", ("fw-crash-watch", 0, "dialog-warning",
-                                                                  "⚠ " + title, body, actions, hints, 0)),
-                                 GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, -1, None)
-        self.pending[res.unpack()[0]] = ev
+        nid = notify.send("fw-crash-watch", "⚠ " + title, body,
+                          [("default", "Diagnose"), ("diagnose", "Diagnose"), ("dismiss", "Dismiss")],
+                          icon="dialog-warning", bus=self.bus)
+        if nid is None:
+            return
+        self.pending[nid] = ev
         while len(self.pending) > 50:  # dismissed ones are never reported back reliably; keep it bounded
             self.pending.pop(next(iter(self.pending)))
 
-    def on_action(self, _conn, _sender, _path, _iface, _signal, params):
-        nid, action = params.unpack()
+    def on_action(self, nid, action):
         ev = self.pending.pop(nid, None)
         if ev and action in ("default", "diagnose"):
-            subprocess.Popen(["fw-jarvis", "diagnose", self.report(ev)], start_new_session=True)
+            notify.launch(["fw-jarvis", "diagnose", self.report(ev)])
 
     # --- report -------------------------------------------------------------------------------
     def report(self, ev):

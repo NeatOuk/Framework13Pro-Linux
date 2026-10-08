@@ -4,7 +4,7 @@
 #   fw-jarvis                  the Jarvis panel (SUPER+A): ask and the answer appears inline (fw-jarvis-panel)
 #   fw-jarvis menu             the older fuzzel menu
 #   fw-jarvis crash | repo <agent> <task> | open claude|opencode   the panel's buttons
-#   fw-jarvis diagnose <file>  pick an agent to explain a crash report (from fw-crash-watch)
+#   fw-jarvis diagnose <file>  explain a crash report (fw-crash-watch) or a daily health report (fw-health)
 # Ask/Diagnose run in ~/.local/share/jarvis, whose AGENTS.md/CLAUDE.md brief the agent on this OS.
 set -euo pipefail
 
@@ -64,11 +64,11 @@ launch() {
 
 diagnose() {
   local file=$1
-  [[ -r $file ]] || { fw-notify "Jarvis" "Crash report not found"; return; }
+  [[ -r $file ]] || { fw-notify "Jarvis" "Report not found"; return; }
   # The Jarvis panel answers inline and right away; fixes come as Run/Skip cards (nothing runs without a click).
-  exec fw-jarvis-panel --ask "Something crashed. Read the crash report at $file, then check whatever else helps \
-(journalctl, coredumpctl info, the app's own log files). Explain in plain words what happened and the most likely \
-cause. If there's a fix, propose it as action cards, one step at a time."
+  exec fw-jarvis-panel --ask "Read the report at $file (a crash report or a daily health report), then check \
+whatever else helps (journalctl, coredumpctl info, the app's own log files). Explain in plain words what needs \
+attention and the most likely cause. If there's a fix, propose it as action cards, one step at a time."
 }
 
 main() {
