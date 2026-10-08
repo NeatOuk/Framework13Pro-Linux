@@ -2,7 +2,8 @@
 # One-time Timeshift setup — whole system, mode picked automatically:
 #   btrfs mode  if / is the @ subvolume (Ubuntu/Arch-style layout: @, @home) — instant, no extra space
 #   rsync mode  otherwise (Fedora names its subvolumes root/home; also ext4/xfs) — copies files
-# Scheduling: fw-timeshift.timer runs `timeshift --check` hourly (works with or without cron).
+# Scheduling: Timeshift's own /etc/cron.d jobs (written by timeshift itself when a schedule is on; cronie is a
+# dependency of Fedora's timeshift package). Restore in rsync mode on Fedora: sudo fw-timeshift-restore.
 set -euo pipefail
 [[ $EUID -eq 0 ]] || exec sudo "$0" "$@"
 
@@ -68,10 +69,9 @@ JSON
 echo "Wrote /etc/timeshift/timeshift.json (mode: $MODE)"
 timeshift --create --comments "baseline after fw13-hypr install" --scripted
 timeshift --list
-systemctl enable --now fw-timeshift.timer
 cat <<EOF
 
-Schedule: $([[ $MODE == btrfs ]] && echo "hourly x12, ")daily x7, weekly x4, boot x3 (fw-timeshift.timer, hourly check).
-Restore a broken system: boot, run 'sudo timeshift --restore' (or the GUI: timeshift-launcher).
+Schedule: $([[ $MODE == btrfs ]] && echo "hourly x12, ")daily x7, weekly x4, boot x3 (Timeshift's own cron jobs).
+Restore a broken system: $([[ $MODE == btrfs ]] && echo "'sudo timeshift --restore' (or the GUI: timeshift-launcher)" || echo "'sudo fw-timeshift-restore' (Timeshift's own restore can't mount Fedora's root subvolume)").
 $([[ $MODE == rsync ]] && echo "rsync mode copies files: first snapshot is slow and as big as your data; later ones are incremental (hard links).")
 EOF

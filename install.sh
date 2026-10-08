@@ -139,7 +139,12 @@ system_phase() {
 
   say "System files"
   $SUDO install -m 0755 system/usr/local/bin/* /usr/local/bin/
-  $SUDO install -m 0644 system/etc/systemd/system/* /etc/systemd/system/
+  compgen -G 'system/etc/systemd/system/*' >/dev/null && $SUDO install -m 0644 system/etc/systemd/system/* /etc/systemd/system/
+  # Timeshift schedules itself (its own /etc/cron.d jobs); our old fw-timeshift timer ran every check a second time.
+  if [[ -e /etc/systemd/system/fw-timeshift.timer ]]; then
+    [[ $CI == 1 ]] || $SUDO systemctl disable --now fw-timeshift.timer 2>/dev/null || true
+    $SUDO rm -f /etc/systemd/system/fw-timeshift.timer /etc/systemd/system/fw-timeshift.service
+  fi
   # Hide the plain "Hyprland" login entry: only "Hyprland (uwsm)" should be picked.
   $SUDO install -D -m 0644 system/usr/local/share/wayland-sessions/hyprland.desktop /usr/local/share/wayland-sessions/hyprland.desktop
   # Hyprland session for GDM/SDDM/greetd, if the package didn't ship one
@@ -155,15 +160,10 @@ DesktopNames=Hyprland
 EOF
   fi
 
-  # GDM: preselect "Hyprland (uwsm)" for everyone who hasn't picked a session yet (user decision; GDM otherwise
-  # defaults to GNOME). Only an added line in its [daemon] section, and only if no default is set already.
-  local gdm=/etc/gdm/custom.conf
-  if [[ -f $gdm ]] && ! grep -q '^ *DefaultSession *=' "$gdm"; then
-    if grep -q '^\[daemon\]' "$gdm"; then
-      $SUDO sed -i '/^\[daemon\]/a DefaultSession=hyprland-uwsm.desktop' "$gdm"
-    else
-      printf '\n[daemon]\nDefaultSession=hyprland-uwsm.desktop\n' | $SUDO tee -a "$gdm" >/dev/null
-    fi
+  # An earlier version added "DefaultSession=hyprland-uwsm.desktop" to GDM's custom.conf. GDM 50 has no such key (it
+  # remembers each user's last session instead), so take that exact line out again.
+  if [[ -f /etc/gdm/custom.conf ]] && grep -qx 'DefaultSession=hyprland-uwsm.desktop' /etc/gdm/custom.conf; then
+    $SUDO sed -i '/^DefaultSession=hyprland-uwsm\.desktop$/d' /etc/gdm/custom.conf
   fi
 
   if use_greetd; then
@@ -188,7 +188,8 @@ EOF
 
     say "Services"
     $SUDO systemctl daemon-reload
-    $SUDO systemctl enable --now bluetooth.service fwupd-refresh.timer fw-timeshift.timer
+    $SUDO systemctl enable --now bluetooth.service fwupd-refresh.timer
+    $SUDO systemctl enable --now fw-health-root.timer  # root-only facts (Timeshift snapshots) for fw-health
     has_ppd || $SUDO systemctl enable --now tuned.service
     $SUDO systemctl enable --now ollama.service   # local models for OpenCode (fw-opencode)
     $SUDO systemctl enable --now warp-svc.service  # Cloudflare WARP daemon; register/connect from the bar panel
@@ -252,13 +253,15 @@ user_phase() {
       --promptString "Chromium GOOGLE_API_KEY (blank to skip)=" \
       --promptString "Chromium GOOGLE_DEFAULT_CLIENT_ID=" \
       --promptString "Chromium GOOGLE_DEFAULT_CLIENT_SECRET=" \
-      --promptString "restic repository (e.g. sftp:nas:/backup/fw13 / s3:... / b2:...; blank to skip)=" \
+      --promptString "restic repository (e.g. sftp:nas:/backup/fw13 / s3:...; blank to skip)=" \
       --promptString "restic repository password=" \
       --promptString "Ollama Cloud API key for OpenCode (blank to skip)="
   else
     mise exec chezmoi@latest -- chezmoi init --apply "$REPO_URL"
     # init doesn't pull an existing source dir; update does (no-op on a fresh install).
-    mise exec chezmoi@latest -- chezmoi update
+    # --init: also re-render chezmoi.toml from the (possibly newer) template; promptStringOnce keeps saved values and
+    # asks only for keys that are new.
+    mise exec chezmoi@latest -- chezmoi update --init
   fi
   mise install node
   mise install

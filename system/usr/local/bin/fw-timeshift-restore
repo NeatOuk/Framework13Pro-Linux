@@ -1,0 +1,551 @@
+#!/usr/bin/env bash
+# Restore a Timeshift RSYNC snapshot on Fedora's btrfs layout (subvolumes root + home). Timeshift 25.12 can't do this
+# itself: its restore always mounts the target with subvol=@ (Ubuntu's name) and fails.
+#
+# Never writes to the running root. It snapshots subvolume root to root.fw-restore, rsyncs the Timeshift snapshot onto
+# that copy, and only when rsync succeeded swaps the two by renaming (root → root.fw-before, copy → root). The next
+# boot runs the restored system; `undo` swaps back. Kept as they are now: /home, Wi-Fi/VPN connections, Bluetooth
+# pairings, fingerprints, Timeshift's settings and the EFI/boot partitions (the snapshot's kernels are copied into
+# /boot next to the current ones and made the default).
+#
+#   fw-timeshift-restore --list                list snapshots (and whether an undo is available)
+#   fw-timeshift-restore [--dry-run] <snap>    what a restore would change; touches nothing (default)
+#   fw-timeshift-restore real <snap>           restore, then reboot (asks first)
+#   fw-timeshift-restore undo                  go back to the system from before the last restore (asks first)
+#
+# Run it as root from a terminal (sudo). real/undo refuse to run without one: no systemd-run, no filter files.
+set -euo pipefail
+
+TS_CONF=/etc/timeshift/timeshift.json
+TS_LOCK=/run/lock/timeshift/lock
+FSTAB=/etc/fstab
+CRYPTTAB=/etc/crypttab
+CMDLINE=/proc/cmdline
+BOOT=/boot
+TMP_BASE=/var/tmp
+COPY=root.fw-restore          # names in the btrfs top level, next to root and home
+BEFORE=root.fw-before
+UNDONE=root.fw-undone
+STATE=fw-restore.state        # top level too: snapshot name + the default kernel from before
+MARGIN=$((2 * 1024 * 1024 * 1024))
+SETCAPS_UNIT=fw-restore-setcaps.service
+
+# Kept from the running system: virtual/live paths, the separate /boot and /home, and machine state newer than any
+# snapshot. rsync applies rules in command-line order, so these come before Timeshift's exclude.list.
+PROTECT=(/dev /proc /sys /run /tmp /mnt /media /var/tmp /var/log/journal /boot /etc/timeshift /home /swapfile
+         /etc/NetworkManager/system-connections /var/lib/bluetooth /var/lib/fprint)
+
+# Empty subvolumes systemd-tmpfiles creates inside root (Q lines); recreated in the copy instead of refusing.
+SYSTEMD_SUBVOLS=(var/lib/machines var/lib/portables)
+
+ROOT_DEV="" ROOT_UUID="" BASE="" WORK="" TOP="" BK="" SNAP="" SDIR="" SRC="" DEFAULT_K="" OLD_DEFAULT="" NEED=0 DRY_LIST=""
+AWAY="" LOCKED=0
+KERNELS=() RSYNC=() NESTED_OK=() BOOT_ADDED=()
+STAGE=none   # none → copy (root.fw-restore exists) → boot (default kernel changed) → swapping (renames started) → swapped
+
+die()  { echo "ABORT: $*" >&2; exit 1; }
+say()  { echo "==> $*"; }
+warn() { echo "WARNING: $*" >&2; }
+
+usage() { sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; }
+
+need_root() { [[ $EUID == 0 ]] || die "run it as root: sudo fw-timeshift-restore $*"; }
+need_tty()  { [[ -t 0 && -t 1 ]] || die "run it in a terminal: it asks before changing anything"; }
+
+json_val() {  # json_val <key> <file>: a top-level string value from Timeshift's flat JSON (no jq on purpose)
+  sed -n "s/^[[:space:]]*\"$1\"[[:space:]]*:[[:space:]]*\"\(.*\)\"[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p" "$2" | head -n1
+}
+
+check_tools() {
+  local t missing=()
+  for t in btrfs cryptsetup rsync findmnt mount umount mountpoint blkid grubby rpm; do
+    command -v "$t" >/dev/null || missing+=("$t")
+  done
+  (( ${#missing[@]} == 0 )) || die "missing commands: ${missing[*]}"
+}
+
+# / must be Fedora's layout: btrfs subvolume root, mounted by name everywhere (renaming it is how the swap works).
+# $1 = extra subvolume name that also counts as the running root (undo before the reboot runs on root.fw-before).
+check_layout() {
+  local src fs uuid opts sub fsopts rflags
+  read -r src fs uuid < <(findmnt -no SOURCE,FSTYPE,UUID /)
+  opts=$(findmnt -no OPTIONS /)
+  [[ $fs == btrfs ]] || die "/ is $fs, not btrfs"
+  sub=$(tr ',' '\n' <<<"$opts" | sed -n 's|^subvol=/\{0,1\}||p')
+  [[ $sub == root || ( -n ${1:-} && $sub == "$1" ) ]] || die "/ is subvolume '${sub:-?}', not 'root'"
+  ROOT_DEV=${src%%\[*}
+  ROOT_UUID=$uuid
+  [[ -b $ROOT_DEV ]] || die "can't find the device of / ($src)"
+  [[ " $(<"$CMDLINE") " =~ [[:space:]]rootflags=([^[:space:]]*) ]] || die "the kernel command line has no rootflags=subvol=root"
+  rflags=${BASH_REMATCH[1]}
+  [[ ,$rflags, =~ ,subvol=/?root, && ,$rflags, != *,subvolid=* ]] \
+    || die "the kernel mounts / with rootflags=$rflags, not by the name 'root'"
+  fsopts=$(awk '$1 !~ /^#/ && $2 == "/" {print $4}' "$FSTAB")
+  [[ ,$fsopts, =~ ,subvol=/?root, && ,$fsopts, != *,subvolid=* ]] || die "$FSTAB mounts / with '$fsopts', not subvol=root"
+  mountpoint -q "$BOOT" || die "$BOOT is not a separate partition (not supported by this version)"
+}
+
+check_rsync_mode() {
+  [[ -f $TS_CONF ]] || die "no $TS_CONF: set Timeshift up first (sudo fw-timeshift-setup)"
+  [[ $(json_val btrfs_mode "$TS_CONF") == false ]] \
+    || die "Timeshift is in btrfs mode: restore with 'sudo timeshift --restore' (or timeshift-launcher)"
+}
+
+lock_pid() { [[ -f $TS_LOCK ]] && head -n1 "$TS_LOCK" | cut -d';' -f1 | tr -dc 0-9; return 0; }
+
+check_lock() {
+  local pid
+  if pgrep -x timeshift >/dev/null || pgrep -x timeshift-gtk >/dev/null; then die "Timeshift is running: close it first"; fi
+  pid=$(lock_pid)
+  [[ -n $pid && $pid != "$$" && -d /proc/$pid ]] && die "Timeshift's lock is held (pid $pid): wait for it to finish"
+  return 0
+}
+
+# Holds Timeshift's own lock ("pid;mode", like its AppLock) for the whole real run, so its cron jobs (boot snapshot,
+# hourly --check that also prunes) refuse to start and can't change the snapshot being copied. Re-taken if it vanished.
+take_lock() {
+  check_lock
+  [[ $(lock_pid) == "$$" ]] && return 0
+  mkdir -p "${TS_LOCK%/*}"
+  printf '%s;restore\n' "$$" >"$TS_LOCK"
+  LOCKED=1
+}
+
+cleanup() {
+  local rc=$? f
+  set +e
+  # Interrupted between a rename and the stage update: tell from the subvolumes which side of the swap we're on.
+  if [[ $STAGE == swapping && $AWAY == "$BEFORE" && -d $TOP/root ]]; then
+    if [[ -e $TOP/$COPY ]]; then STAGE=boot; else STAGE=swapped; fi
+  fi
+  if [[ -n $TOP ]] && mountpoint -q "$TOP" && [[ ! -d $TOP/root ]]; then
+    # A rename was interrupted: delete nothing, change nothing, say how to put root back.
+    echo "!!! subvolume root is missing in the btrfs top level; nothing else was deleted or changed." >&2
+    echo "!!! Do not reboot. Put it back:  sudo mount -o subvolid=5 $ROOT_DEV /mnt &&" \
+         "sudo mv -T /mnt/${AWAY:-<root.fw-before or root.fw-undone>} /mnt/root && sudo umount /mnt" >&2
+    [[ $AWAY == "$BEFORE" && -n $OLD_DEFAULT ]] && echo "!!! Then set the old kernel back:  sudo grubby --set-default=$OLD_DEFAULT" >&2
+  elif [[ $STAGE == swapped && $rc != 0 && $AWAY == "$BEFORE" ]]; then
+    echo "The swap was already done: the restored system runs after the next reboot (undo: sudo fw-timeshift-restore undo)."
+  elif [[ $STAGE == copy || $STAGE == boot ]]; then
+    if [[ $STAGE == boot && -n $OLD_DEFAULT ]]; then
+      grubby --set-default="$OLD_DEFAULT" >/dev/null && echo "Default kernel set back to $OLD_DEFAULT"
+    fi
+    for f in "${BOOT_ADDED[@]}"; do rm -f -- "$f" && echo "  - $f"; done
+    rm -f "$TOP/$STATE"
+    echo "Deleting the unfinished copy ($COPY); the running system was not touched."
+    btrfs subvolume delete "$TOP/$COPY" >/dev/null
+  fi
+  (( LOCKED )) && [[ $(lock_pid) == "$$" ]] && rm -f "$TS_LOCK"
+  [[ -n $BK ]] && mountpoint -q "$BK" && umount "$BK"
+  [[ -n $TOP ]] && mountpoint -q "$TOP" && umount "$TOP"
+  [[ -n $WORK ]] && rmdir "$WORK"/* "$WORK" 2>/dev/null
+  exit "$rc"
+}
+
+# The btrfs top level (subvolid=5) holds root, home and Timeshift's snapshots on Fedora; read-only unless $1 = rw.
+mount_top() {
+  local opts=subvolid=5
+  [[ ${1:-ro} == rw ]] || opts+=,ro
+  WORK=$(mktemp -d "$TMP_BASE/fw-restore.XXXXXX")
+  TOP=$WORK/top
+  mkdir "$TOP"
+  trap cleanup EXIT
+  trap 'exit 130' INT TERM
+  mount -o "$opts" "$ROOT_DEV" "$TOP"
+  [[ -d $TOP/root ]] || die "the btrfs top level has no subvolume 'root'"
+}
+
+# Snapshots live on Timeshift's backup device: the root btrfs itself, or a second drive picked in fw-timeshift-setup.
+find_base() {
+  local uuid dev fstype opts=ro
+  uuid=$(json_val backup_device_uuid "$TS_CONF")
+  if [[ -z $uuid || $uuid == "$ROOT_UUID" ]]; then
+    BASE=$TOP/timeshift/snapshots
+  else
+    dev=$(blkid -U "$uuid" 2>/dev/null) || die "Timeshift's backup device ($uuid) isn't connected or unlocked"
+    fstype=$(blkid -s TYPE -o value "$dev")
+    [[ $fstype == btrfs ]] && opts+=,subvolid=5
+    BK=$WORK/backup
+    mkdir "$BK"
+    mount -o "$opts" "$dev" "$BK"
+    BASE=$BK/timeshift/snapshots
+  fi
+  [[ -d $BASE ]] || die "no Timeshift rsync snapshots in ${BASE#"$WORK"/}"
+}
+
+list_snapshots() {
+  local d n=0 tags comment
+  for d in "$BASE"/*/; do
+    [[ -d ${d}localhost ]] || continue
+    tags=$(json_val tags "${d}info.json" 2>/dev/null) || tags=""
+    comment=$(json_val comments "${d}info.json" 2>/dev/null) || comment=""
+    printf '  %-21s %-6s %s\n' "$(basename "$d")" "$tags" "$comment"
+    n=$((n + 1))
+  done
+  (( n > 0 )) || echo "  (none)"
+}
+
+show_state() {
+  if [[ -d $TOP/$BEFORE ]]; then
+    echo "Undo available: 'sudo fw-timeshift-restore undo' goes back to the system from before the last restore."
+    [[ -f $TOP/$STATE ]] && sed 's/^/  /' "$TOP/$STATE"
+  fi
+  return 0
+}
+
+check_snapshot() {
+  local d uuid
+  [[ $SNAP =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] || die "'$SNAP' is not a snapshot name (see --list)"
+  SDIR=$BASE/$SNAP
+  SRC=$SDIR/localhost
+  [[ -d $SRC ]] || die "no snapshot $SNAP (see --list)"
+  [[ -f $SDIR/exclude.list ]] || die "snapshot $SNAP has no exclude.list"
+  for d in etc usr boot; do
+    [[ -d $SRC/$d ]] || die "snapshot $SNAP has no /$d: not a whole-system snapshot"
+  done
+  uuid=$(json_val sys-uuid "$SDIR/info.json" 2>/dev/null) || uuid=""
+  [[ -z $uuid || $uuid == "$ROOT_UUID" ]] || die "snapshot $SNAP was taken of another system (root $uuid)"
+}
+
+# Kernels the snapshot can boot: vmlinuz in its /boot with the matching /usr/lib/modules. The newest one that also has
+# an initramfs and a boot entry (in the snapshot or already in /boot) becomes the default.
+check_kernels() {
+  local f k
+  KERNELS=()
+  for f in "$SRC/boot"/vmlinuz-*; do
+    [[ -f $f ]] || continue
+    k=${f##*/vmlinuz-}
+    [[ $k == 0-rescue-* ]] && continue
+    [[ -d $SRC/usr/lib/modules/$k ]] && KERNELS+=("$k")
+  done
+  (( ${#KERNELS[@]} > 0 )) || die "snapshot $SNAP has no kernel in /boot with matching modules in /usr/lib/modules"
+  DEFAULT_K=""
+  while read -r k; do
+    [[ -f $SRC/boot/initramfs-$k.img || -f $BOOT/initramfs-$k.img ]] || continue
+    compgen -G "$SRC/boot/loader/entries/*-$k.conf" >/dev/null || compgen -G "$BOOT/loader/entries/*-$k.conf" >/dev/null \
+      || continue
+    DEFAULT_K=$k
+    break
+  done < <(printf '%s\n' "${KERNELS[@]}" | sort -rV)
+  [[ -n $DEFAULT_K ]] || die "no kernel of snapshot $SNAP has both an initramfs and a boot entry"
+}
+
+uuids_of() { [[ -f $1 ]] && grep -v '^[[:space:]]*#' "$1" | grep -oE 'UUID=[^[:space:],]+' | sort -u; return 0; }
+
+check_uuids() {
+  [[ $(uuids_of "$FSTAB") == "$(uuids_of "$SRC/etc/fstab")" ]] \
+    || die "/etc/fstab in the snapshot names other disks than now (repartitioned or reinstalled since?)"
+  [[ $(uuids_of "$CRYPTTAB") == "$(uuids_of "$SRC/etc/crypttab")" ]] \
+    || die "/etc/crypttab in the snapshot names other encrypted disks than now"
+}
+
+# Subvolumes inside root aren't part of a btrfs snapshot (the copy has an empty directory there): after the swap
+# their content would stay behind in root.fw-before. systemd's empty ones are fine (recreated by recreate_nested).
+check_nested() {
+  local p bad=()
+  NESTED_OK=()
+  while read -r p; do
+    p=${p#<FS_TREE>/}
+    p=${p#root/}
+    [[ -n $p ]] || continue
+    if [[ " ${SYSTEMD_SUBVOLS[*]} " == *" $p "* && -d $TOP/root/$p && -z $(ls -A "$TOP/root/$p") ]]; then
+      NESTED_OK+=("$p")
+    else
+      bad+=("/$p")
+    fi
+  done < <(btrfs subvolume list -o "$TOP/root" | sed -n 's/.* path //p')
+  (( ${#bad[@]} == 0 )) || die "subvolumes inside root would be left behind in $BEFORE; move their content out \
+or delete them first:
+$(printf '  %s\n' "${bad[@]}")"
+}
+
+# The copy has a plain empty directory where systemd's subvolumes were; make them subvolumes again (best effort:
+# a plain directory works too, systemd only loses its btrfs extras there).
+recreate_nested() {
+  local c=$1 p
+  for p in "${NESTED_OK[@]}"; do
+    [[ -d $c/$p && -z $(ls -A "$c/$p") ]] || continue
+    if rmdir "$c/$p" && btrfs subvolume create "$c/$p" >/dev/null; then
+      chmod --reference="$TOP/root/$p" "$c/$p" || true
+    else
+      mkdir -m 0700 "$c/$p"
+      warn "/$p stays a plain directory in the restored system"
+    fi
+  done
+}
+
+check_space() {
+  local free
+  free=$(btrfs filesystem usage -b "$TOP" | sed -n 's/.*Free (estimated):[[:space:]]*\([0-9]*\).*/\1/p' | head -n1)
+  [[ $free =~ ^[0-9]+$ ]] || die "can't read the free space of the btrfs filesystem"
+  (( free > NEED + MARGIN )) \
+    || die "not enough free space: the restore writes about $((NEED >> 20)) MiB, $((free >> 20)) MiB free (2 GiB kept spare)"
+}
+
+rsync_args() {  # the rule set for both the dry run and the real run
+  local p
+  RSYNC=(rsync -a --delete --force --sparse --numeric-ids)
+  for p in "${PROTECT[@]}"; do RSYNC+=("--filter=- $p"); done
+  RSYNC+=("--exclude-from=$SDIR/exclude.list")
+}
+
+# Compares the snapshot with subvolume root as seen from the top level (no /home, /boot or other mounts inside).
+dry_run() {
+  local rc=0
+  rsync_args
+  DRY_LIST=$(mktemp --suffix=.txt "$TMP_BASE/fw-restore-dry.XXXXXX")
+  say "Comparing snapshot $SNAP with the running system (a few minutes, read-only)…"
+  "${RSYNC[@]}" --dry-run --itemize-changes --stats "$SRC/" "$TOP/root/" >"$DRY_LIST" || rc=$?
+  # 24 = files vanished from the source: a snapshot never changes unless Timeshift is deleting it right now.
+  (( rc != 24 )) || die "snapshot $SNAP changed while it was read (Timeshift deleting it?): nothing was changed"
+  (( rc == 0 )) || die "rsync dry run failed (exit $rc): nothing was changed; see $DRY_LIST"
+  NEED=$(sed -n 's/^Total transferred file size: \([0-9,]*\) bytes.*/\1/p' "$DRY_LIST" | tr -d ,)
+  NEED=${NEED:-0}
+}
+
+summary() {
+  local comment chg del
+  comment=$(json_val comments "$SDIR/info.json" 2>/dev/null) || comment=""
+  chg=$(grep -c '^[>c][fL]' "$DRY_LIST" || true)
+  del=$(grep -c '^\*deleting' "$DRY_LIST" || true)
+  echo
+  echo "Snapshot        : $SNAP${comment:+  ($comment)}"
+  echo "Kernels now     : $(cd "$BOOT" && compgen -G 'vmlinuz-*' | grep -v -- -rescue- | sed 's/^vmlinuz-//' | tr '\n' ' ')"
+  echo "Snapshot kernels: ${KERNELS[*]}  → default after restore: $DEFAULT_K"
+  echo "Files changed or added back: $chg ($((NEED >> 20)) MiB)"
+  echo "Files/dirs deleted (created since the snapshot): $del"
+  if (( del > 0 )); then
+    echo "Deleted, by folder:"
+    sed -n 's/^\*deleting  *//p' "$DRY_LIST" | awk -F/ '{print "/" $1 (NF > 2 ? "/" $2 : "")}' \
+      | sort | uniq -c | sort -rn | head -n 20 | sed 's/^/  /'
+  fi
+  echo "Kept as they are now: /home, Wi-Fi/VPN connections, Bluetooth pairings, fingerprints, Timeshift settings, $BOOT"
+  echo "Full list: $DRY_LIST"
+}
+
+confirm() {  # confirm <word>
+  local answer
+  read -rp "Type '$1' to go on, anything else stops: " answer
+  [[ $answer == "$1" ]] || die "stopped; nothing was changed"
+}
+
+reboot_now() {
+  read -rp "Press Enter to reboot now (Ctrl+C: reboot later yourself) " _
+  systemctl reboot
+}
+
+# rpm can't set file capabilities after rsync replaced a file (no -X, like Timeshift's restore): reapply them from the
+# restored rpm database. If that fails here, a one-shot unit does it on the first normal boot and removes itself.
+fix_caps() {
+  local c=$1 unit=$1/etc/systemd/system/$SETCAPS_UNIT
+  if rpm --root "$c" --setcaps -a >/dev/null 2>&1; then
+    echo "File capabilities reapplied."
+    return
+  fi
+  warn "rpm --root --setcaps failed; the first boot after the restore does it instead"
+  mkdir -p "$c/etc/systemd/system/multi-user.target.wants"
+  cat >"$unit" <<EOF
+[Unit]
+Description=Reapply file capabilities after fw-timeshift-restore
+ConditionPathExists=!/.autorelabel
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/bin/rpm --setcaps -a
+ExecStartPost=/usr/bin/rm -f /etc/systemd/system/$SETCAPS_UNIT /etc/systemd/system/multi-user.target.wants/$SETCAPS_UNIT
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  ln -sfn "../$SETCAPS_UNIT" "$c/etc/systemd/system/multi-user.target.wants/$SETCAPS_UNIT"
+}
+
+# The snapshot's kernels go into /boot next to the current ones (nothing there is replaced or deleted). The added
+# files are removed again if the restore stops before the swap, and recorded in the state file for undo.
+boot_step() {
+  local k f rel need=0 free todo=()
+  for k in "${KERNELS[@]}"; do
+    for f in "$SRC/boot"/{vmlinuz,initramfs,System.map,config,symvers}-"$k"* "$SRC/boot/.vmlinuz-$k.hmac" \
+             "$SRC/boot/loader/entries"/*-"$k".conf; do
+      [[ -f $f ]] || continue
+      rel=${f#"$SRC/boot/"}
+      [[ -e $BOOT/$rel ]] && continue
+      todo+=("$rel")
+      need=$((need + $(stat -c %s -- "$f")))
+    done
+  done
+  free=$(df -B1 --output=avail "$BOOT" | tail -n1 | tr -dc 0-9)
+  (( ${free:-0} > need + 64 * 1024 * 1024 )) \
+    || die "not enough space in $BOOT for the snapshot's kernels: $((need >> 20)) MiB needed, $((${free:-0} >> 20)) MiB free"
+  for rel in "${todo[@]}"; do
+    BOOT_ADDED+=("$BOOT/$rel")   # before cp: a partial file is removed too
+    cp -p -- "$SRC/boot/$rel" "$BOOT/$rel"
+    echo "  + $BOOT/$rel"
+  done
+  if (( ${#BOOT_ADDED[@]} > 0 )) && command -v restorecon >/dev/null; then restorecon -F "${BOOT_ADDED[@]}" || true; fi
+  OLD_DEFAULT=$(grubby --default-kernel)
+  STAGE=boot
+  grubby --set-default="$BOOT/vmlinuz-$DEFAULT_K" >/dev/null || die "grubby couldn't make $DEFAULT_K the default kernel"
+  [[ $(grubby --default-kernel) == "$BOOT/vmlinuz-$DEFAULT_K" ]] || die "grubby didn't make $DEFAULT_K the default kernel"
+}
+
+# swap_in <away> <new>: root → <away>, <new> → root; puts root back if the second rename fails. From the first rename
+# on, cleanup deletes nothing (stage swapping); if root ends up missing it prints how to rename <away> back.
+swap_in() {
+  local prev=$STAGE new=$2
+  AWAY=$1
+  mv -T "$TOP/root" "$TOP/$AWAY" || die "couldn't rename root to $AWAY; everything is as before"
+  STAGE=swapping
+  if ! mv -T "$TOP/$new" "$TOP/root"; then
+    mv -T "$TOP/$AWAY" "$TOP/root" || die "couldn't rename $new to root, nor $AWAY back to root"
+    STAGE=$prev
+    die "couldn't rename $new to root; everything is as before"
+  fi
+  STAGE=swapped
+}
+
+do_list() {
+  need_root --list
+  check_tools
+  check_layout "$BEFORE"
+  check_rsync_mode
+  mount_top ro
+  find_base
+  echo "Timeshift snapshots (name, tags, comment):"
+  list_snapshots
+  show_state
+}
+
+do_dry() {
+  need_root "$SNAP"
+  check_tools
+  check_layout
+  check_rsync_mode
+  mount_top ro
+  find_base
+  check_snapshot
+  check_kernels
+  check_uuids
+  check_nested
+  dry_run
+  summary
+  check_space
+  echo
+  echo "Nothing was changed. To restore: sudo fw-timeshift-restore real $SNAP"
+}
+
+do_real() {
+  local rc=0 c
+  need_root real "$SNAP"
+  need_tty
+  check_tools
+  check_layout
+  check_rsync_mode
+  check_lock
+  mount_top rw
+  take_lock
+  [[ -e $TOP/$BEFORE ]] && die "a previous restore is still kept as $BEFORE. Undo it, or delete it first:
+  sudo mount -o subvolid=5 $ROOT_DEV /mnt && sudo btrfs subvolume delete /mnt/$BEFORE && sudo umount /mnt"
+  [[ -e $TOP/$UNDONE ]] && die "$UNDONE from an earlier undo is still there; delete it first:
+  sudo mount -o subvolid=5 $ROOT_DEV /mnt && sudo btrfs subvolume delete /mnt/$UNDONE && sudo umount /mnt"
+  if [[ -e $TOP/$COPY ]]; then   # left over from an interrupted run; never the running system (that's root)
+    say "Deleting $COPY left over from an interrupted run"
+    btrfs subvolume delete "$TOP/$COPY" >/dev/null
+  fi
+  find_base
+  check_snapshot
+  check_kernels
+  check_uuids
+  check_nested
+  dry_run
+  summary
+  check_space
+  cat <<EOF
+
+The restore copies the system subvolume, writes the snapshot onto the copy and swaps the two at the end; the running
+system is not changed until then. /home is untouched. The first boot relabels SELinux (several minutes, then it
+reboots once by itself). If you don't like the result: sudo fw-timeshift-restore undo
+EOF
+  confirm restore
+  take_lock
+
+  say "Copying subvolume root to $COPY"
+  btrfs subvolume snapshot "$TOP/root" "$TOP/$COPY" >/dev/null
+  STAGE=copy
+  c=$TOP/$COPY
+  say "Writing snapshot $SNAP onto the copy"
+  "${RSYNC[@]}" --info=progress2 --stats "$SRC/" "$c/" || rc=$?
+  # 24 (vanished files) counts as a failure: the snapshot itself changed, so the copy is incomplete.
+  (( rc != 24 )) || die "snapshot $SNAP changed during the restore (Timeshift deleting it?); not rebooting"
+  (( rc == 0 )) || die "rsync failed (exit $rc); not rebooting"
+  btrfs filesystem sync "$TOP" >/dev/null
+  recreate_nested "$c"
+  fix_caps "$c"
+  touch "$c/.autorelabel"
+  rmdir "$c$WORK"/* "$c$WORK" 2>/dev/null || true   # this script's own mount point, copied in by the snapshot
+  say "Adding the snapshot's kernels to $BOOT"
+  boot_step
+  say "Swapping: root → $BEFORE, $COPY → root"
+  { printf 'snapshot=%s\nrestored=%s\nold_default_kernel=%s\nnew_default_kernel=%s\n' \
+      "$SNAP" "$(date '+%F %T')" "$OLD_DEFAULT" "$BOOT/vmlinuz-$DEFAULT_K"
+    (( ${#BOOT_ADDED[@]} == 0 )) || printf 'boot_added=%s\n' "${BOOT_ADDED[@]}"
+  } >"$TOP/$STATE"
+  swap_in "$BEFORE" "$COPY"
+  sync
+  echo
+  echo "Restored $SNAP. It runs after the reboot; the old system is kept as $BEFORE (undo: sudo fw-timeshift-restore undo)."
+  reboot_now
+}
+
+do_undo() {
+  local old="" f added=()
+  need_root undo
+  need_tty
+  check_tools
+  check_layout "$BEFORE"
+  check_lock
+  mount_top rw
+  [[ -d $TOP/$BEFORE ]] || die "nothing to undo: there is no $BEFORE"
+  [[ -e $TOP/$UNDONE ]] && die "$UNDONE from an earlier undo is still there; delete it first:
+  sudo mount -o subvolid=5 $ROOT_DEV /mnt && sudo btrfs subvolume delete /mnt/$UNDONE && sudo umount /mnt"
+  [[ -f $TOP/$STATE ]] && old=$(sed -n 's/^old_default_kernel=//p' "$TOP/$STATE")
+  [[ -f $TOP/$STATE ]] && mapfile -t added < <(sed -n 's/^boot_added=//p' "$TOP/$STATE")
+  echo "Undo: the restored system becomes $UNDONE and the system from before the restore becomes root again."
+  [[ -f $TOP/$STATE ]] && sed 's/^/  /' "$TOP/$STATE"
+  echo "/home is untouched."
+  confirm undo
+  say "Swapping: root → $UNDONE, $BEFORE → root"
+  swap_in "$UNDONE" "$BEFORE"
+  rm -f "$TOP/$STATE"
+  # The default kernel goes back (the snapshot's kernel may lack modules in the old system); only then are the kernel
+  # files the restore added to /boot removed (no package owns them, so dnf would never clean them up).
+  if [[ -n $old && -f $old ]] && grubby --set-default="$old" >/dev/null; then
+    for f in "${added[@]}"; do
+      [[ $f == "$BOOT"/* && $f != *..* && $f != "$old" ]] || continue
+      rm -f -- "$f" && echo "  - $f"
+    done
+  elif [[ -n $old && -f $old ]]; then
+    warn "couldn't set the default kernel back to $old; pick it in the boot menu"
+  elif [[ -n $old ]]; then
+    warn "$old is gone; the default kernel stays $(grubby --default-kernel). Pick another in the boot menu if it fails"
+  fi
+  sync
+  echo
+  echo "Undone. After the reboot, delete the restored copy when you don't need it:"
+  echo "  sudo mount -o subvolid=5 $ROOT_DEV /mnt && sudo btrfs subvolume delete /mnt/$UNDONE && sudo umount /mnt"
+  reboot_now
+}
+
+main() {
+  case "${1:-}" in
+    --list|-l)        do_list ;;
+    --dry-run)        SNAP=${2:?snapshot name (see --list)}; do_dry ;;
+    real)             SNAP=${2:?snapshot name (see --list)}; do_real ;;
+    undo)             do_undo ;;
+    -h|--help|"")     usage ;;
+    -*)               usage >&2; exit 2 ;;
+    *)                SNAP=$1; do_dry ;;
+  esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
