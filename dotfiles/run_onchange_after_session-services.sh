@@ -3,8 +3,11 @@
 #  - fw-crash-watch: crash/failed-service notifications (Diagnose with Jarvis)
 #  - mako: notifications; its own unit follows graphical-session.target under uwsm (not started from Hyprland)
 #  - fw-theme-session: GTK theme/colour scheme set at Hyprland login, handed back at logout (fw13.theme)
+#  - fw-autobrightness: ambient-light brightness (Hyprland only, off until Settings → Display turns it on)
+#  - fw-health.timer: health report 15 min after login, then daily (fw-health --timer; notifies in Hyprland only)
 systemctl --user show-environment >/dev/null 2>&1 || exit 0
 systemctl --user daemon-reload
-systemctl --user enable fw-crash-watch.service mako.service fw-theme-session.service
+systemctl --user enable fw-crash-watch.service mako.service fw-theme-session.service fw-autobrightness.service
+systemctl --user enable --now fw-health.timer
 systemctl --user reset-failed mako.service 2>/dev/null || true
 systemctl --user restart fw-crash-watch.service 2>/dev/null || true

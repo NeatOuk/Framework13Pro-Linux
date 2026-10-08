@@ -1,0 +1,6 @@
+#!/bin/sh
+# Re-render ~/.config/hypr/hypridle.conf from the saved Settings → Power values whenever fw13.idle changes what it
+# writes (e.g. the auto-brightness pause/resume hooks), so existing installs get the new listeners.
+# idle.py hash: {{ include "dot_local/lib/fw13/idle.py" | sha256sum }}
+command -v python3 >/dev/null 2>&1 || exit 0
+PYTHONPATH="$HOME/.local/lib" python3 -c 'from fw13 import idle; idle.write()' || true

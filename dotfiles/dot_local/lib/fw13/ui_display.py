@@ -1,4 +1,4 @@
-"""DisplayEditor: brightness + drag-to-arrange monitors + refresh/scale, Apply → Keep (15 s) / Revert.
+"""DisplayEditor: brightness (+ auto switch) + drag-to-arrange monitors + refresh/scale, Apply → Keep (15 s) / Revert.
 
 Used by the bar's fw-display-panel (in a layer-shell popup) and fw-settings' Display page.
 """
@@ -8,7 +8,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from . import displays  # noqa: E402
+from . import als, displays  # noqa: E402
 from .ui_theme import rgb, watch  # noqa: E402
 
 KEEP_SECONDS = 15
@@ -23,6 +23,7 @@ class DisplayEditor(Gtk.Box):
         self.drag = None     # (monitor, grab offset x, y in logical px)
         self.view = None     # (factor, offset x, offset y) canvas mapping, fixed during a drag
         self.pending = None  # brightness debounce
+        self.auto = None     # auto-brightness switch (only with a light sensor, inside Hyprland)
 
         if brightness and displays.has_backlight():
             row = Gtk.Box(spacing=10)
@@ -35,6 +36,8 @@ class DisplayEditor(Gtk.Box):
             row.pack_start(self.bright, True, True, 0)
             row.pack_start(self.pct, False, False, 0)
             self.pack_start(row, False, False, 0)
+            if als.hyprland() and als.available():
+                self.add_auto_row()
 
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_size_request(-1, CANVAS_H)
@@ -92,6 +95,38 @@ class DisplayEditor(Gtk.Box):
             self.rows.attach(combo, 3, i, 1, 1)
         self.rows.show_all()
 
+    def add_auto_row(self):
+        row = Gtk.Box(spacing=10)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        text.pack_start(Gtk.Label(label="Adjust to ambient light", xalign=0), False, False, 0)
+        self.auto_hint = Gtk.Label(xalign=0, wrap=True)
+        self.auto_hint.get_style_context().add_class("dim")
+        text.pack_start(self.auto_hint, False, False, 0)
+        row.pack_start(text, True, True, 0)
+        self.auto = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.auto.connect("state-set", self.on_auto)
+        row.pack_end(self.auto, False, False, 0)
+        self.pack_start(row, False, False, 0)
+        self.refresh_auto()
+
+    def refresh_auto(self):
+        """Switch and hint from the store and the daemon's state (paused by a manual change, ...)."""
+        if self.auto is None:
+            return False
+        on = als.enabled()
+        self.auto.handler_block_by_func(self.on_auto)
+        self.auto.set_active(on)
+        self.auto.handler_unblock_by_func(self.on_auto)
+        holds = als.state()["holds"] if on else []
+        self.auto_hint.set_text("Paused by a manual change until the next wake or login" if "manual" in holds
+                                else "A brightness key or the slider pauses it until the next wake or login")
+        return False
+
+    def on_auto(self, _sw, on):
+        als.set_enabled(on)
+        GLib.timeout_add(1500, self.refresh_auto)
+        return False
+
     def set_dirty(self, dirty):
         self.apply_btn.set_sensitive(dirty)
         self.revert_btn.set_sensitive(dirty)
@@ -106,6 +141,8 @@ class DisplayEditor(Gtk.Box):
     def flush_brightness(self):
         self.pending = None
         displays.set_brightness(self.bright.get_value())
+        if self.auto is not None and self.auto.get_active():
+            GLib.timeout_add(2500, self.refresh_auto)  # the daemon notices within ~2 s and pauses
         return False
 
     # canvas

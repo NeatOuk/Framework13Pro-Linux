@@ -1,0 +1,16 @@
+[Unit]
+Description=fw13 auto-brightness from the ambient light sensor (Hyprland only, off by default)
+# Settings → Display / the display panel switch store key `autobrightness` and start/stop this unit. The
+# condition skips it (no failure) when the switch is off, outside Hyprland (HYPRLAND_INSTANCE_SIGNATURE with a
+# live socket dir; GNOME/KDE keep their own) or without a light sensor and backlight.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecCondition=%h/.local/bin/fw-autobrightness enabled
+ExecStart=%h/.local/bin/fw-autobrightness run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

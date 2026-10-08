@@ -1,4 +1,4 @@
-"""Display: brightness + arrange/refresh/scale (shared DisplayEditor) + night light."""
+"""Display: brightness + auto-brightness + arrange/refresh/scale (shared DisplayEditor) + night light."""
 import subprocess
 
 import gi
@@ -61,6 +61,7 @@ class DisplayPage(Page):
         if not self.editor.unconfirmed():
             self.editor.restore()  # re-read monitors (hotplug) — no-op when nothing was applied
         self.sw.set_active(nightlight_on())
+        self.editor.refresh_auto()
 
     def closing(self):
         if self.editor.unconfirmed():

@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Auto-brightness daemon (user service fw-autobrightness, Hyprland only, off by default).
+
+Follows the ambient light sensor (iio-sensor-proxy) and sets the built-in panel's brightness on a log-lux curve
+(fw13.als: moving average, 5-point hysteresis, short brightnessctl ramps, checked step by step).
+Holds (no changes while any is set):
+  idle    hypridle's dim / screen-off hooks (`fw-autobrightness pause` / `resume`, fw13.idle)
+  sleep   logind PrepareForSleep
+  lid     lid closed (the sensor sits in the bezel)
+  manual  the brightness changed under us (keys, a slider): until the next wake or login
+Usage: fw-autobrightness [run]          the daemon (writes $XDG_RUNTIME_DIR/fw-autobrightness.pid)
+       fw-autobrightness pause|resume   idle hold on/off, signalled by pid (no daemon: nothing to do)
+       fw-autobrightness status         one line
+       fw-autobrightness enabled        exit 0 when the service should run (switch on, Hyprland, sensor)
+"""
+import os
+import signal
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+from fw13 import als  # noqa: E402
+
+
+def cmd_pause(on):
+    if not (als.pause() if on else als.resume()):
+        return 0
+    deadline = time.monotonic() + 0.5  # wait for the ack, so the dim that follows isn't mistaken for a key
+    while time.monotonic() < deadline:
+        if ("idle" in als.state()["holds"]) == on:
+            break
+        time.sleep(0.02)
+    return 0
+
+
+def cmd_status():
+    s = als.state()
+    if not s["running"]:
+        print("off" if not als.enabled() else "on, not running (Hyprland only; needs a light sensor)")
+    elif "manual" in s["holds"]:
+        print("paused by a manual brightness change until the next wake or login")
+    elif s["holds"]:
+        print("paused (" + ", ".join(s["holds"]) + ")")
+    else:
+        print(f"on: {s.get('brightness', '?')}% at {s.get('lux', 0):.0f} lux")
+    return 0
+
+
+def cmd_enabled():
+    return 0 if als.enabled() and als.hyprland() and als.available() else 1
+
+
+class Daemon:
+    def __init__(self):
+        from gi.repository import Gio, GLib
+        self.Gio, self.GLib = Gio, GLib
+        self.dev = als.backlight()
+        self.holds = set()
+        self.lux = None
+        self.avg = None              # smoothed log-lux; None = take the next reading as it is
+        self.recent = []             # last raw readings (als.WINDOW), median → average
+        self.expected = als.read_pct(self.dev)
+        self.last_write = 0.0
+        self.ramp_src = None
+        self.steps = []
+        self.loop = GLib.MainLoop()
+        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        self.bus.signal_subscribe(als.BUS, "org.freedesktop.DBus.Properties", "PropertiesChanged", als.OBJ,
+                                  None, Gio.DBusSignalFlags.NONE, self.on_props)
+        self.bus.signal_subscribe("org.freedesktop.login1", "org.freedesktop.login1.Manager", "PrepareForSleep",
+                                  "/org/freedesktop/login1", None, Gio.DBusSignalFlags.NONE, self.on_sleep)
+        # (re)claim whenever the proxy appears: it can be restarted, and a claim dies with it
+        Gio.bus_watch_name_on_connection(self.bus, als.BUS, Gio.BusNameWatcherFlags.NONE,
+                                         self.on_appeared, self.on_vanished)
+        try:  # GLibUnix is the newer home of unix_signal_add
+            from gi.repository import GLibUnix
+            add = GLibUnix.signal_add
+        except ImportError:
+            add = GLib.unix_signal_add
+        for sig, fn in ((signal.SIGUSR1, lambda: self.hold("idle")), (signal.SIGUSR2, lambda: self.release("idle")),
+                        (signal.SIGTERM, self.loop.quit), (signal.SIGINT, self.loop.quit)):
+            add(GLib.PRIORITY_DEFAULT, sig, lambda f=fn: f() or True)
+        GLib.timeout_add_seconds(1, self.tick)
+
+    # --- sensor ------------------------------------------------------------------------------------------------
+    def call(self, method):
+        try:
+            self.bus.call_sync(als.BUS, als.OBJ, als.BUS, method, None, None, self.Gio.DBusCallFlags.NONE, 2000, None)
+            return True
+        except self.GLib.Error as e:
+            print(f"{method}: {e.message}", flush=True)
+            return False
+
+    def on_appeared(self, *_):
+        if self.call("ClaimLight"):
+            self.lux = als.sensor_props().get("LightLevel")
+
+    def on_vanished(self, *_):
+        self.lux = None
+
+    def on_props(self, _c, _s, _p, _i, _m, params):
+        changed = params.unpack()[1]
+        if "LightLevel" in changed:
+            self.lux = float(changed["LightLevel"])
+
+    def on_sleep(self, _c, _s, _p, _i, _m, params):
+        if params.unpack()[0]:
+            self.hold("sleep")
+        else:
+            self.holds.discard("manual")  # a wake starts over
+            self.release("sleep")
+
+    # --- holds --------------------------------------------------------------------------------------------------
+    def hold(self, why):
+        self.holds.add(why)
+        self.stop_ramp()
+        self.save()
+
+    def release(self, why):
+        self.holds.discard(why)
+        if not self.holds:
+            self.avg = None  # light may have changed a lot meanwhile: no slow average from stale values
+            self.recent = []
+            self.expected = als.read_pct(self.dev)  # e.g. what hypridle's `brightnessctl -r` restored
+            self.last_write = time.monotonic()
+        self.save()
+
+    # --- loop ---------------------------------------------------------------------------------------------------
+    def tick(self):
+        if als.lid_closed():
+            if "lid" not in self.holds:
+                self.hold("lid")
+        elif "lid" in self.holds:
+            self.release("lid")
+        if self.holds or self.steps:
+            return True
+        actual = als.read_pct(self.dev)
+        if als.manual(self.expected, actual, time.monotonic() - self.last_write):
+            print(f"manual change ({self.expected}% → {actual}%): paused until the next wake or login", flush=True)
+            self.hold("manual")
+            return True
+        if self.lux is None or actual is None:
+            return True
+        self.recent = (self.recent + [self.lux])[-als.WINDOW:]
+        self.avg = als.smooth(self.avg, als.median(self.recent))
+        to = als.target(actual, als.curve(als.unsmooth(self.avg)))
+        if to is not None:
+            self.steps = als.ramp(actual, to)
+            self.ramp_src = self.GLib.timeout_add(als.RAMP_MS, self.step)
+        self.save(actual)
+        return True
+
+    def step(self):
+        if not self.steps:
+            self.ramp_src = None
+            return False
+        actual = als.read_pct(self.dev)  # the previous step has landed (set synchronously): anything else is a key
+        if als.manual(self.expected, actual, float("inf")):
+            print(f"manual change during a ramp ({self.expected}% → {actual}%): paused until the next wake or login",
+                  flush=True)
+            self.ramp_src = None  # returning False ends this source; stop_ramp() must not remove it again
+            self.hold("manual")
+            return False
+        v = self.steps.pop(0)
+        self.set(v)
+        self.expected, self.last_write = v, time.monotonic()
+        if not self.steps:
+            self.ramp_src = None
+            self.save(v)
+            return False
+        return True
+
+    def set(self, pct):
+        """Like fw13.displays.set_brightness, but waits, so the next step can read back exactly what landed."""
+        try:
+            subprocess.run(["brightnessctl", "-q", "set", f"{int(pct)}%"], timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    def stop_ramp(self):
+        if self.ramp_src:
+            self.GLib.source_remove(self.ramp_src)
+            self.ramp_src = None
+        self.steps = []
+
+    def save(self, brightness=None):
+        try:
+            als.write_state({"holds": sorted(self.holds), "lux": self.lux or 0.0,
+                             "brightness": brightness if brightness is not None else self.expected})
+        except OSError:
+            pass
+
+    def run(self):
+        self.save()
+        try:
+            self.loop.run()
+        finally:
+            self.stop_ramp()
+            self.call("ReleaseLight")
+
+
+def cmd_run():
+    if not (als.enabled() and als.hyprland()):
+        return 0  # switched off, or not Hyprland (rule 3a: GNOME/KDE keep their own)
+    if als.pid() not in (None, os.getpid()):
+        return 0  # already running
+    import gi
+    gi.require_version("Gio", "2.0")
+    d = Daemon()  # signal handlers first: hypridle's `pause` finds the pidfile only once SIGUSR1 can't kill us
+    with open(als.PIDFILE, "w") as f:
+        f.write(str(os.getpid()))
+    try:
+        d.run()
+    finally:
+        for path in (als.PIDFILE, als.STATE):
+            try:
+                if path != als.PIDFILE or open(path).read() == str(os.getpid()):
+                    os.remove(path)
+            except OSError:
+                pass
+    return 0
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "run"
+    if cmd in ("pause", "resume"):
+        return cmd_pause(cmd == "pause")
+    return {"run": cmd_run, "status": cmd_status, "enabled": cmd_enabled}.get(cmd, lambda: print(__doc__) or 2)()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
