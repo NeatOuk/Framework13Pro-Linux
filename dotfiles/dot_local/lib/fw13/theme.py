@@ -20,7 +20,8 @@ upgrade of a wallpaper-following install does not start out with Tokyo Night GTK
 Apps with their own settings files, changed only from a Hyprland session:
   Chromium   GTK mode (extensions.theme.system_theme) once per profile at login, unless the user chose a theme
              (chromium_gtk()); it then takes its colours from the fw13 GTK theme. GNOME's Chromium too (Adwaita).
-  VS Code    opt-in (store VSCODE_ON): theme-scoped workbench.colorCustomizations, removed at logout.
+             Opt-in switch (store CHROMIUM_FORCE) replaces a chosen theme with GTK mode at every login (_chromium_force()).
+  VS Code    on by default, switch in Settings → Appearance (store VSCODE_ON): theme-scoped workbench.colorCustomizations, removed at logout.
 Terminal tools (btop's TTY theme, fzf --color=16, bat's ansi theme) use kitty's 16 colours: nothing to write.
 
 Other desktops on the same account (Fedora Workstation/KDE bases, CLAUDE.md 3a): gtk-theme and color-scheme
@@ -850,6 +851,8 @@ def restore_fcitx():
 
 CHROMIUM_DIR = os.path.expanduser("~/.config/chromium")
 CHROMIUM_DONE = "theme_chromium_gtk"  # fw13.store key: profile dirs chromium_gtk() has handled (once each)
+CHROMIUM_FORCE = "chromium_gtk_force"  # fw13.store key: the Appearance switch (off by default): replaces a theme
+#                                        the user chose with GTK mode, at every login while Chromium is closed
 CHROMIUM_HINT = "theme_chromium_hint"  # fw13.store key: True when the setting was protected (Appearance hint)
 
 
@@ -940,6 +943,8 @@ def chromium_gtk():
         _drop(CHROMIUM_HINT)  # GTK chosen in Chromium meanwhile, or the profile is gone
     if not os.path.isdir(CHROMIUM_DIR):
         return None
+    if store.get(CHROMIUM_FORCE):
+        return _chromium_force()
     done = store.get(CHROMIUM_DONE)
     done = done if isinstance(done, list) else []
     todo = [n for n in _chromium_profiles() if n not in done]
@@ -982,10 +987,67 @@ def chromium_gtk():
     return "; ".join(dict.fromkeys(notes)) or None
 
 
-# ---- VS Code (opt-in, Settings → Appearance) ----------------------------------------------------------------
+def _chromium_gtk_wanted(theme, browser_theme):
+    """True if a profile still differs from what choosing GTK in Chromium's settings and "Device" as the mode
+    leaves: system_theme 1, no theme extension, no colour theme, and the light/dark mode following the system
+    (color_scheme/color_scheme2 absent or 0), so the frame takes the fw13 theme's dark or light."""
+    return (theme.get("system_theme") != 1 or bool(theme.get("id"))
+            or any(v != 0 for v in browser_theme.values()))
+
+
+def _chromium_force():
+    """The Appearance switch is on: every profile ends up in GTK mode, replacing a theme or colour the user chose
+    in Chromium, and a fixed Light/Dark mode (that is what the switch is for). Same limits as chromium_gtk(): Chromium closed (it rewrites
+    Preferences on exit), value not MAC-protected, Hyprland only. Returns None or a short note."""
+    todo = []
+    for name in _chromium_profiles():
+        prefs = os.path.join(CHROMIUM_DIR, name, "Preferences")
+        try:
+            data, theme, browser_theme = _chromium_theme(prefs)
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        if _chromium_gtk_wanted(theme, browser_theme):
+            todo.append((name, prefs, data, theme, browser_theme))
+    if not todo:
+        return None
+    if _chromium_running():
+        return "Chromium is running; GTK mode is set at the next login"
+    notes = []
+    for name, prefs, data, theme, browser_theme in todo:
+        if _mac_protected(prefs) or _mac_protected(os.path.join(CHROMIUM_DIR, name, "Secure Preferences")):
+            notes.append("Chromium protects its theme setting; choose GTK in Chromium's Settings → Appearance")
+            continue
+        theme.pop("id", None)
+        theme["system_theme"] = 1  # ui::SystemTheme::kGtk
+        browser_theme.clear()  # colour theme keys and a fixed Light/Dark mode: the mode follows the system
+        try:
+            _atomic_user(prefs, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+        except OSError as e:
+            notes.append(f"Could not set Chromium's GTK mode: {e}")
+    return "; ".join(dict.fromkeys(notes)) or None
+
+
+def set_chromium(on):
+    """The Settings → Appearance switch for Chromium: store it, then apply (the theme is replaced by GTK mode
+    now if Chromium is closed, else at the next login). Switching off only stops forcing: the theme that was
+    replaced is not restored. Returns None or a note."""
+    try:
+        store.set(CHROMIUM_FORCE, bool(on))
+    except OSError as e:
+        return f"Could not save the setting: {e}"
+    if not on:
+        return None
+    if not _in_hyprland():
+        return "Chromium follows the theme in Hyprland sessions"
+    if not os.path.isdir(CHROMIUM_DIR):
+        return None
+    return chromium_gtk()
+
+
+# ---- VS Code (on by default, switch in Settings → Appearance) ----------------------------------------------------------------
 
 VSCODE_SETTINGS = os.path.expanduser("~/.config/Code/User/settings.json")
-VSCODE_ON = "vscode_theme"  # fw13.store key: the switch (off by default)
+VSCODE_ON = "vscode_theme"  # fw13.store key: the switch (on by default: store.DEFAULTS)
 VSCODE_APPLIED = "theme_vscode_applied"  # fw13.store key: {"key": scope, "hash": of the block we wrote}
 # VS Code's own default themes (theme ids; 1.140: "Dark 2026"/"Light 2026" default, "Dark Modern"/"Light Modern"
 # the previous ones, migrated from "Default Dark Modern"). The colours are scoped to them, so a theme the user
