@@ -1,9 +1,9 @@
-# Framework13Pro-Linux (fw13-hypr)
+# fw13-hyprland (fw13-hypr)
 
 An ML4W-style installer that turns **any regular Fedora install** (Workstation/GNOME, KDE Plasma, any spin, or Minimal) into a clean Hyprland desktop, tuned for the **Framework Laptop 13, AMD Ryzen AI 9 HX 370**. It adds what's needed and removes nothing.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/NeatOuk/Framework13Pro-Linux/main/install.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/NeatOuk/fw13-hyprland/main/install.sh)
 ```
 
 Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it asks for sudo when it needs it. It's safe to re-run. Reboot when it finishes, then pick **Hyprland (uwsm)** at the login screen.

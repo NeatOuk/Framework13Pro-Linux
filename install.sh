@@ -2,7 +2,7 @@
 # fw13-hypr installer — Hyprland desktop for Fedora (Workstation, KDE, any spin, or Minimal).
 # Run as your normal user (it uses sudo where needed). Safe to re-run.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/NeatOuk/Framework13Pro-Linux/main/install.sh)
+#   bash <(curl -fsSL https://raw.githubusercontent.com/NeatOuk/fw13-hyprland/main/install.sh)
 #
 # Flags:
 #   --yes           don't ask for confirmation
@@ -12,7 +12,7 @@
 #   --user-only     only the per-user part (dotfiles, mise, shell)
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/NeatOuk/Framework13Pro-Linux}"
+REPO_URL="${REPO_URL:-https://github.com/NeatOuk/fw13-hyprland}"
 CHECKOUT="${CHECKOUT:-$HOME/.local/share/fw13-hypr}"
 HYPR_COPR="${HYPR_COPR-lionheartp/Hyprland}"
 # Citadel outbound firewall + its root helper: built from the owner's repos as RPMs (no prebuilt packages).

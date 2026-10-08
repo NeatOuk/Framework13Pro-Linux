@@ -5,7 +5,7 @@ notification. Explain in plain language; the owner decides what changes.
 
 ## The system
 - Fedora (regular edition, not Atomic) with a **Hyprland** desktop started through **uwsm**, set up by the
-  fw13-hypr installer. Its repo: `~/Framework13Pro-Linux` (owner's clone) or `~/.local/share/fw13-hypr`.
+  fw13-hypr installer. Its repo: `~/fw13-hyprland` or `~/Framework13Pro-Linux` (owner's clone) or `~/.local/share/fw13-hypr`.
   That repo's `CLAUDE.md` holds the project rules; read it before proposing changes to the desktop.
 - Target hardware: Framework Laptop 13, AMD Ryzen AI 9 HX 370 (Radeon 890M, MediaTek MT7925 Wi-Fi).
 - Dotfiles are managed by **chezmoi** from the repo's `dotfiles/` dir. Editing `~/.config/...` directly gets

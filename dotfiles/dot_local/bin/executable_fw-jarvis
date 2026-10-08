@@ -10,8 +10,10 @@ set -euo pipefail
 
 JDIR="$HOME/.local/share/jarvis"
 CRASHES="${XDG_RUNTIME_DIR:-/tmp}/jarvis"
-if [[ -d "$HOME/Framework13Pro-Linux/.git" ]]; then REPO="$HOME/Framework13Pro-Linux"
-else REPO="$HOME/.local/share/fw13-hypr"; fi
+REPO="$HOME/.local/share/fw13-hypr"
+for d in "$HOME/fw13-hyprland" "$HOME/Framework13Pro-Linux"; do   # owner's clone (new name, old name)
+  [[ -d $d/.git ]] && { REPO=$d; break; }
+done
 
 mkdir -p "$CRASHES"
 LOG="$CRASHES/jarvis.log"
