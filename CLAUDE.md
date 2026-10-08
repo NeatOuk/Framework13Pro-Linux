@@ -54,7 +54,7 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
                            Generated in ~/.config/fw13/theme/: hypr.lua hyprlock.conf waybar.css fuzzel.ini mako kitty.conf (create_ seeds)
                            + gtk3.css gtk4.css qt6ct-colors.conf fcitx5-theme.conf framework-logo.svg (written by theme.init/ensure_files) + desktop.jpg lock.jpg (fw13.wallpaper)
                            Session-only app theming (session_start/session_end, Hyprland only): fcitx5 Theme=fw13 in classicui.conf (old values
-                           restored), Chromium extensions.theme.system_theme=1 once per profile when unset and Chromium isn't running (opt-in Appearance switch `chromium_gtk_force` also replaces a theme the user chose), VS Code
+                           restored), Chromium extensions.theme.system_theme=1 once per profile when unset and Chromium isn't running (opt-in Appearance switch `chromium_gtk_force` also replaces a theme the user chose and writes `~/.config/fw13/theme/chromium-policy.json` = BrowserThemeColor from the accent, re-read live via SIGHUP; install.sh links `/etc/chromium/policies/managed/fw13-theme.json` to it), VS Code
                            workbench.colorCustomizations (on by default, Appearance switch, strict JSON only, removed at logout); TUIs follow kitty's 16 colours
                            (btop color_theme TTY via create_btop.conf, FZF_DEFAULT_OPTS/BAT_THEME in uwsm/env-hyprland)
                            Colour rule: colour literals live only in theme.py TOKYO_NIGHT, the create_ seeds of ~/.config/fw13/theme/ and hypr/theme.lua's

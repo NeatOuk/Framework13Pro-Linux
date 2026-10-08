@@ -623,6 +623,7 @@ def write(p, apply=True):
         _atomic(os.path.join(DIR, name), text)
     _write_gtk_theme(p)
     link_gtk()
+    chromium_policy(p, signal=apply)
     if apply:
         reload(p)
 
@@ -987,11 +988,63 @@ def chromium_gtk():
     return "; ".join(dict.fromkeys(notes)) or None
 
 
+CHROMIUM_POLICY = os.path.join(DIR, "chromium-policy.json")  # /etc/chromium/policies/managed/fw13-theme.json links here
+
+
+CHROMIUM_POLICY_LINK = "/etc/chromium/policies/managed/fw13-theme.json"  # made by install.sh (root)
+
+
+def _chromium_browsers():
+    """PIDs of running Chromium browser processes (not its zygote/renderer children)."""
+    try:
+        r = subprocess.run(["pgrep", "-x", "chromium-browse"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    out = []
+    for pid in r.stdout.split():
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                if b"--type=" not in f.read():
+                    out.append(int(pid))
+        except (OSError, ValueError):
+            pass
+    return out
+
+
+def chromium_policy(p, signal=True):
+    """Chromium's BrowserThemeColor policy from the palette's accent, so a running Chromium follows the colours:
+    Chromium builds its whole palette from that one seed and re-reads policies on SIGHUP. Only with the Appearance
+    switch (CHROMIUM_FORCE) on; switched off, the file is emptied (the symlink in /etc/chromium/policies/managed
+    stays valid, root made it once). Nothing happens unless the switch is on or the /etc link exists (then the
+    file is kept as "{}", so Chromium never reads a dangling link)."""
+    on = bool(store.get(CHROMIUM_FORCE))
+    if not on and not os.path.exists(CHROMIUM_POLICY) and not os.path.islink(CHROMIUM_POLICY_LINK):
+        return
+    text = json.dumps({"BrowserThemeColor": p["accent"]} if on else {}) + "\n"
+    try:
+        with open(CHROMIUM_POLICY) as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    try:
+        _atomic(CHROMIUM_POLICY, text)
+    except OSError:
+        return
+    if signal and _in_hyprland():
+        for pid in _chromium_browsers():
+            try:
+                os.kill(pid, 1)  # SIGHUP: reload policies
+            except OSError:
+                pass
+
+
 def _chromium_gtk_wanted(theme, browser_theme):
-    """True if a profile still differs from what choosing GTK in Chromium's settings and "Device" as the mode
-    leaves: system_theme 1, no theme extension, no colour theme, and the light/dark mode following the system
-    (color_scheme/color_scheme2 absent or 0), so the frame takes the fw13 theme's dark or light."""
-    return (theme.get("system_theme") != 1 or bool(theme.get("id"))
+    """True if a profile still differs from the state the BrowserThemeColor policy needs: Chromium's own theme
+    (system_theme 0, not GTK mode, which would take its colours from GTK and ignore the policy seed), no theme
+    extension, no colour theme, and the light/dark mode following the system (color_scheme/color_scheme2 absent
+    or 0), so the frame takes the fw13 theme's dark or light."""
+    return (theme.get("system_theme") not in (None, 0) or bool(theme.get("id"))
             or any(v != 0 for v in browser_theme.values()))
 
 
@@ -1011,19 +1064,19 @@ def _chromium_force():
     if not todo:
         return None
     if _chromium_running():
-        return "Chromium is running; GTK mode is set at the next login"
+        return "Chromium is running; the theme is set at the next login"
     notes = []
     for name, prefs, data, theme, browser_theme in todo:
         if _mac_protected(prefs) or _mac_protected(os.path.join(CHROMIUM_DIR, name, "Secure Preferences")):
-            notes.append("Chromium protects its theme setting; choose GTK in Chromium's Settings → Appearance")
+            notes.append("Chromium protects its theme setting; the policy colour may not apply")
             continue
         theme.pop("id", None)
-        theme["system_theme"] = 1  # ui::SystemTheme::kGtk
+        theme["system_theme"] = 0  # ui::SystemTheme::kDefault: colours come from the policy seed, not GTK
         browser_theme.clear()  # colour theme keys and a fixed Light/Dark mode: the mode follows the system
         try:
             _atomic_user(prefs, json.dumps(data, ensure_ascii=False, separators=(",", ":")))
         except OSError as e:
-            notes.append(f"Could not set Chromium's GTK mode: {e}")
+            notes.append(f"Could not set Chromium's theme: {e}")
     return "; ".join(dict.fromkeys(notes)) or None
 
 
@@ -1035,6 +1088,7 @@ def set_chromium(on):
         store.set(CHROMIUM_FORCE, bool(on))
     except OSError as e:
         return f"Could not save the setting: {e}"
+    chromium_policy(palette())
     if not on:
         return None
     if not _in_hyprland():

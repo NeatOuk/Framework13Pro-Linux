@@ -174,6 +174,10 @@ system_phase() {
     [[ $CI == 1 ]] || $SUDO systemctl disable --now fw-timeshift.timer 2>/dev/null || true
     $SUDO rm -f /etc/systemd/system/fw-timeshift.timer /etc/systemd/system/fw-timeshift.service
   fi
+  # Chromium follows the theme colour through its BrowserThemeColor policy: the managed-policy file is a link to a
+  # file fw13.theme rewrites in the user's home (Appearance → Chromium switch); it stays "{}" until the switch is on.
+  $SUDO install -d -m 0755 /etc/chromium/policies/managed
+  $SUDO ln -sfn "$HOME/.config/fw13/theme/chromium-policy.json" /etc/chromium/policies/managed/fw13-theme.json
   # Hide the plain "Hyprland" login entry: only "Hyprland (uwsm)" should be picked.
   $SUDO install -D -m 0644 system/usr/local/share/wayland-sessions/hyprland.desktop /usr/local/share/wayland-sessions/hyprland.desktop
   # Hyprland session for GDM/SDDM/greetd, if the package didn't ship one
