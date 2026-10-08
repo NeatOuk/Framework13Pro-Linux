@@ -8,3 +8,6 @@ mangohud
 # Fedora official (user-approved): Windows game launchers such as Battle.net, through Lutris' own install scripts and
 # Wine runners (downloaded into ~/.local/share/lutris); 32-bit Mesa/Vulkan already come with steam
 lutris
+# Fedora (user-approved): Lutris reads the screen resolution with xrandr before installs/launches and crashes
+# without it (a weak dep, so not pulled in with weak deps off)
+xrandr
