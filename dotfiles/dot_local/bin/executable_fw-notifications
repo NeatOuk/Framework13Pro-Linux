@@ -1,0 +1,231 @@
+#!/usr/bin/env python3
+"""Notification bell: history, do-not-disturb, dismiss all (mako).
+
+  fw-notifications          menu (bar bell with FW_BAR=1 → opens below it): do-not-disturb on/off, dismiss all,
+                            then the notifications, newest first; picking one copies its text
+  fw-notifications --bar    waybar JSON (custom/notifications, signal 12): bell + unread count, bell-slash under DND
+  fw-notifications --dnd    toggle do-not-disturb (bar right-click)
+
+Unread = notifications newer than the `notif_seen` mark in fw13.store ({"mako": <pid>:<start time>, "id": N}, set
+when the menu opens). mako numbers notifications from 1 again after a restart, so the mark resets when the mako
+process it was taken from is gone (not when ids drop: `makoctl dismiss -h` or an app closing its own notification
+removes the newest without a restart).
+mako's global on-notify signals the bar; fw-osd popups (history=0, on-notify=none) are left out everywhere.
+"""
+import html
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+from fw13 import store  # noqa: E402
+
+BAR_SIGNAL = 12
+DND = "do-not-disturb"
+SKIP_APPS = {"fw-osd"}
+BELL, BELL_SLASH = "", ""  # Font Awesome 6 Free: bell, bell-slash
+
+
+def bar_refresh():
+    subprocess.run(["pkill", f"-RTMIN+{BAR_SIGNAL}", "-x", "waybar"], stderr=subprocess.DEVNULL)
+
+
+def makoctl(*args):
+    try:
+        r = subprocess.run(["makoctl", *args], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def _plain(v):
+    """A field's value: mako ≥ 1.9 prints plain JSON; older makoctl printed busctl's {"type": …, "data": …}."""
+    if isinstance(v, dict) and "data" in v:
+        return _plain(v["data"])
+    return v
+
+
+def _field(n, *names):
+    for name in names:  # "app_name" today, "app-name" in the D-Bus dict / older makoctl
+        if name in n:
+            return _plain(n[name])
+    return None
+
+
+def notifications(cmd):
+    """[{id, app, summary, body}] from `makoctl list|history -j`; anything unreadable is skipped."""
+    out = makoctl(cmd, "-j")
+    try:
+        data = json.loads(out) if out else []
+    except ValueError:
+        return []
+    data = _plain(data)
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], list):  # busctl's [[…]]
+        data = data[0]
+    if not isinstance(data, list):
+        return []
+    result = []
+    for n in data:
+        if not isinstance(n, dict):
+            continue
+        try:
+            nid = int(_field(n, "id"))
+        except (TypeError, ValueError):
+            continue
+        app = str(_field(n, "app_name", "app-name") or "")
+        if app in SKIP_APPS:
+            continue
+        result.append({"id": nid, "app": app,
+                       "summary": str(_field(n, "summary") or ""), "body": str(_field(n, "body") or "")})
+    return result
+
+
+def everything():
+    """Visible and dismissed notifications, newest first, each id once."""
+    seen, result = set(), []
+    for n in sorted(notifications("list") + notifications("history"), key=lambda n: -n["id"]):
+        if n["id"] not in seen:
+            seen.add(n["id"])
+            result.append(n)
+    return result
+
+
+def dnd_on():
+    return DND in (makoctl("mode") or "").split()
+
+
+def plain_text(s):
+    """mako bodies may hold Pango markup: drop tags, decode entities."""
+    return html.unescape(re.sub(r"<[^>]*>", "", s))
+
+
+def mako_instance():
+    """"<pid>:<start time>" of the running mako (start time: a reused pid is a different process), or None."""
+    r = subprocess.run(["pgrep", "-x", "-u", str(os.getuid()), "mako"], capture_output=True, text=True)
+    pids = r.stdout.split()
+    if len(pids) != 1:  # none, or one per seat/session: can't tell which one is ours
+        return None
+    try:
+        with open(f"/proc/{pids[0]}/stat") as f:
+            start = f.read().rsplit(")", 1)[1].split()[19]  # field 22 (starttime), counted after "(comm)"
+    except (OSError, IndexError):
+        return None
+    return f"{pids[0]}:{start}"
+
+
+def seen_mark():
+    saved = store.get("notif_seen")
+    if not isinstance(saved, dict):  # unset, or a bare id from an older version: adopt it for this mako
+        saved = {"mako": None, "id": saved if isinstance(saved, int) else 0}
+    mark, inst = saved.get("id") or 0, mako_instance()
+    if inst and saved.get("mako") != inst:
+        if saved.get("mako"):  # mako restarted: ids began again at 1
+            mark = 0
+        store.set("notif_seen", {"mako": inst, "id": mark})
+    return mark
+
+
+def mark_seen(nid):
+    store.set("notif_seen", {"mako": mako_instance(), "id": nid})
+
+
+# --- bar ----------------------------------------------------------------------------------------
+def bar():
+    items = everything()
+    mark = seen_mark()
+    unread = sum(n["id"] > mark for n in items)
+    if dnd_on():
+        text, cls = BELL_SLASH, "dnd"
+        tip, hint = "Do not disturb is on", "turn it off"
+    else:
+        text, cls = BELL, "unread" if unread else ""
+        tip, hint = "Notifications", "do not disturb"
+    if unread:
+        text += f" {unread}"
+        tip += f" · {unread} new"
+    print(json.dumps({"text": text, "tooltip": tip + f"\nRight-click: {hint}", "class": cls}))
+
+
+# --- menu ---------------------------------------------------------------------------------------
+def fuzzel(rows, prompt, pos):
+    # fuzzel allows one instance (a lock in $XDG_RUNTIME_DIR): wait for a closing one, at most 2 s.
+    for _ in range(40):
+        if subprocess.run(["pgrep", "-x", "fuzzel"], capture_output=True).returncode:
+            break
+        time.sleep(0.05)
+    r = subprocess.run(["fuzzel", "--dmenu", "--index", *pos, "--prompt", f"{prompt} › ", "--width", "64",
+                        "--lines", str(min(len(rows), 14))],
+                       input="\n".join(rows), capture_output=True, text=True)
+    try:
+        return int(r.stdout.strip()) if r.returncode == 0 else None
+    except ValueError:
+        return None
+
+
+def row(n):
+    text = " — ".join(t for t in (plain_text(n["summary"]), plain_text(n["body"])) if t)
+    text = " ".join(text.split())  # one line
+    if len(text) > 90:
+        text = text[:89] + "…"
+    return f"{n['app'] or 'Notification'} · {text}" if text else (n["app"] or "Notification")
+
+
+def menu(pos):
+    items = everything()
+    if items:  # opening the menu marks everything as read
+        mark_seen(max(n["id"] for n in items))
+        bar_refresh()
+    dnd = dnd_on()
+    rows = [f"{BELL if dnd else BELL_SLASH}  Turn do not disturb {'off' if dnd else 'on'}",
+            "  Dismiss all"]  # xmark
+    rows += [row(n) for n in items] or ["No notifications"]
+    pick = fuzzel(rows, "Notifications", pos)
+    if pick is None:
+        return
+    if pick == 0:
+        toggle_dnd()
+    elif pick == 1:
+        makoctl("dismiss", "--all")
+    elif 2 <= pick < 2 + len(items):
+        n = items[pick - 2]
+        text = "\n".join(t for t in (plain_text(n["summary"]), plain_text(n["body"])) if t)
+        try:  # wl-copy stays running to serve the clipboard: don't wait for it
+            p = subprocess.Popen(["wl-copy"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+            p.stdin.write(text.encode())
+            p.stdin.close()
+        except OSError:
+            pass
+
+
+def toggle_dnd():
+    makoctl("mode", "-t", DND)
+    bar_refresh()
+
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else ""
+    if arg == "--bar":
+        bar()
+    elif arg == "--dnd":
+        toggle_dnd()
+    elif arg == "":
+        pos = []
+        if os.environ.get("FW_BAR"):
+            pos = subprocess.run(["fw-menu-anchor", "notifications"], capture_output=True, text=True).stdout.split("\n")
+            pos = [p for p in pos if p]
+            if not pos:
+                return 0  # second click on the bell: menu closed
+        menu(pos)
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# On-screen display for the laptop keys: fw-osd volume|mic|brightness
+# Runs after the key changed the value (bindings.lua: `wpctl … && fw-osd volume`), reads it back and shows a mako
+# popup with a progress bar. Every press reuses the same notification id (kept in $XDG_RUNTIME_DIR/fw-osd.id), so
+# holding a key updates one popup instead of stacking them. Look and placement: [app-name=fw-osd] in mako/config.
+set -euo pipefail
+
+idfile="${XDG_RUNTIME_DIR:-/tmp}/fw-osd.id"
+
+case ${1:-} in
+  volume|mic)
+    dev=@DEFAULT_AUDIO_SINK@ label=Volume
+    [[ $1 == mic ]] && dev=@DEFAULT_AUDIO_SOURCE@ label=Microphone
+    # "Volume: 0.45" or "Volume: 0.45 [MUTED]"
+    read -r _ vol muted < <(wpctl get-volume "$dev" 2>/dev/null) || exit 0
+    pct="$(awk -v v="$vol" 'BEGIN { printf "%d", v * 100 + 0.5 }')"
+    if [[ $1 == mic ]]; then
+      icon=$''                                   # microphone
+      [[ -n ${muted:-} ]] && icon=$''            # microphone-slash
+    elif [[ -n ${muted:-} ]]; then icon=$''      # volume-xmark
+    elif (( pct == 0 )); then      icon=$''      # volume-off
+    elif (( pct < 50 )); then      icon=$''      # volume-low
+    else                           icon=$''      # volume-high
+    fi
+    text="$label $pct%"
+    [[ -n ${muted:-} ]] && text="$label muted"
+    ;;
+  brightness)
+    # -m: "amdgpu_bl1,backlight,<cur>,<pct>%,<max>". The keys step with -e4 (perceived brightness), so show that
+    # scale too: (cur / max)^(1/4), the same curve brightnessctl uses.
+    IFS=, read -r _ _ cur _ max < <(brightnessctl -m 2>/dev/null) || exit 0
+    pct="$(awk -v c="$cur" -v m="$max" 'BEGIN { printf "%d", (m > 0 ? (c / m) ^ 0.25 * 100 : 0) + 0.5 }')"
+    icon=$''                                     # sun
+    text="Brightness $pct%"
+    ;;
+  *) echo "usage: fw-osd volume|mic|brightness" >&2; exit 2 ;;
+esac
+(( pct > 100 )) && pct=100
+
+# Key repeat runs several of these at once: one at a time, so they agree on the id.
+exec 9>>"$idfile"
+flock -w 1 9 || exit 0
+id="$(cat "$idfile" 2>/dev/null)"
+[[ $id =~ ^[0-9]+$ ]] || id=0
+# A stale id (the popup expired, or mako restarted) is fine: mako then opens a new popup with a new id.
+out="$(gdbus call --session --dest org.freedesktop.Notifications \
+  --object-path /org/freedesktop/Notifications \
+  --method org.freedesktop.Notifications.Notify \
+  "fw-osd" "$id" "" "$icon  $text" "" "[]" "{'value': <int32 $pct>}" 1200 2>/dev/null)" || exit 0
+[[ $out =~ uint32\ ([0-9]+) ]] && printf '%s\n' "${BASH_REMATCH[1]}" > "$idfile"  # "(uint32 42,)"
+exit 0

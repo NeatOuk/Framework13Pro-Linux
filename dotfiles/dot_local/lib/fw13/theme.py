@@ -415,6 +415,7 @@ def render(p):
             f"background-color={p['bg']}\n"
             f"text-color={p['fg']}\n"
             f"border-color={p['border']}\n"
+            f"progress-color=over #{_a(p['accent'], '66')}\n"  # fw-osd volume/brightness bar, text stays readable
             "[urgency=critical]\n"
             f"border-color={p['bad']}\n")
     kitty = [f"# {HEAD}",
@@ -590,12 +591,24 @@ def _atomic_user(path, text):
     _atomic(path, text, mode=mode)
 
 
+# Lines a generated file must hold; one of ours (HEAD on top) written before a line was added is rewritten by
+# ensure_files() (written only on a palette change otherwise, so an existing install would never get it).
+REQUIRED = {"mako": "progress-color="}
+
+
+def _outdated(name):
+    text = _read_quiet(os.path.join(DIR, name))
+    return (name in REQUIRED and text is not None and HEAD in text.split("\n", 1)[0]
+            and REQUIRED[name] not in text)
+
+
 def ensure_files():
     """Write any missing generated file from the current palette (mako refuses to start when its include is
-    missing). Existing files are left alone."""
+    missing), and any of ours that lacks a line added since (REQUIRED). Other existing files are left alone."""
     os.makedirs(DIR, exist_ok=True)
     p = palette()
-    missing = {n: t for n, t in render(p).items() if not os.path.isfile(os.path.join(DIR, n))}
+    missing = {n: t for n, t in render(p).items()
+               if not os.path.isfile(os.path.join(DIR, n)) or _outdated(n)}
     for name, text in missing.items():
         _atomic(os.path.join(DIR, name), text)
     return sorted(missing) + _write_gtk_theme(p, only_missing=True)
@@ -1209,7 +1222,8 @@ def session_start():
     a session_end() may have reset them), the fcitx5 theme, Chromium's GTK mode (once per profile) and the
     VS Code colours (if switched on). Returns a note or None."""
     try:
-        ensure_files()
+        if "mako" in ensure_files() and shutil.which("makoctl"):
+            _quiet("makoctl", "reload")  # mako may be up already (D-Bus activated before this service)
     except OSError:
         pass
     link_fcitx()

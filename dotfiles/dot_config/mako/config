@@ -1,4 +1,4 @@
-# Colours (incl. the critical border): written by fw13.theme
+# Colours (incl. the critical border and the progress bar): written by fw13.theme
 include=~/.config/fw13/theme/mako
 font=JetBrains Mono 11
 border-size=2
@@ -9,7 +9,20 @@ anchor=top-right
 outer-margin=20
 default-timeout=5000
 max-history=50
+# Refresh the bar bell (fw-notifications, waybar signal 12)
+on-notify=exec pkill -RTMIN+12 -x waybar
 [urgency=critical]
 default-timeout=0
 [mode=do-not-disturb]
 invisible=1
+# Volume / brightness popup (fw-osd): one replaced popup, bottom centre, not kept in history, still shown under
+# do-not-disturb (this section comes after it, so invisible=0 wins). No bell refresh.
+[app-name=fw-osd]
+history=0
+default-timeout=1200
+anchor=bottom-center
+layer=overlay
+invisible=0
+on-notify=none
+width=300
+format=<b>%s</b>

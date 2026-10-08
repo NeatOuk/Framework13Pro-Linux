@@ -6,7 +6,7 @@
   "spacing": 0,
   "modules-left": ["custom/menu", "custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4", "custom/ws5"],
   "modules-center": ["clock", "custom/recording"],
-  "modules-right": ["tray", "bluetooth", "network", "custom/warp", "pulseaudio", "custom/display", "custom/claude", "custom/opencode", "cpu", "battery", "custom/control", "custom/power"],
+  "modules-right": ["tray", "bluetooth", "network", "custom/warp", "pulseaudio", "custom/display", "custom/claude", "custom/opencode", "cpu", "battery", "custom/notifications", "custom/control", "custom/power"],
 
   "custom/menu": { "format": " ", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- kitty", "tooltip": false },
   // Workspace dots for THIS bar's screen (fw-workspaces). Waybar's own hyprland/workspaces click sends a
@@ -55,7 +55,7 @@
   // Cloudflare WARP (fw-warp-panel): cloud = connected (accent) / off (dim); hidden when warp-cli isn't installed.
   "custom/warp": { "exec": "fw-warp-panel --bar", "return-type": "json", "interval": 10, "signal": 11,
                    "on-click": "FW_BAR=1 fw-warp-panel", "on-click-right": "fw-warp-panel --toggle" },
-  "custom/display": { "format": "", "tooltip-format": "Display", "on-click": "FW_BAR=1 fw-display-panel", "on-scroll-up": "brightnessctl -q set 5%+", "on-scroll-down": "brightnessctl -q set 5%-" },
+  "custom/display": { "format": "", "tooltip-format": "Display", "on-click": "FW_BAR=1 fw-display-panel", "on-scroll-up": "brightnessctl -q -e4 -n2 set 5%+ && fw-osd brightness", "on-scroll-down": "brightnessctl -q -e4 -n2 set 5%- && fw-osd brightness" },
   "custom/claude": { "exec": "fw-claude-limits --bar", "return-type": "json", "interval": 60, "on-click": "FW_BAR=1 fw-claude-limits" },
   "custom/opencode": { "exec": "fw-opencode --bar", "return-type": "json", "interval": 300, "signal": 9, "on-click": "FW_BAR=1 fw-opencode" },
   "cpu": { "format": "", "tooltip": true, "on-click": "uwsm app -- kitty --class fw-btop -e btop" },
@@ -64,10 +64,13 @@
     "format": "{icon}",
     "format-charging": " {capacity}%",
     "format-icons": ["", "", "", "", ""],
-    "tooltip-format": "{capacity}% · {timeTo}",
+    "tooltip-format": "{capacity}% · {timeTo} · {power:.1f} W",
     "on-click": "FW_BAR=1 fw-power-panel",
     "on-click-right": "FW_BAR=1 fw-system-menu"
   },
+  // Notification bell (fw-notifications): unread count, bell-slash under do-not-disturb; mako's on-notify sends signal 12.
+  "custom/notifications": { "exec": "fw-notifications --bar", "return-type": "json", "interval": 60, "signal": 12,
+                            "on-click": "FW_BAR=1 fw-notifications", "on-click-right": "fw-notifications --dnd" },
   "custom/control": { "format": "", "tooltip-format": "Settings (SUPER+I)", "on-click": "fw-menu-anchor settings >/dev/null; fw-settings --toggle" },
   "custom/power": { "format": "", "tooltip-format": "Lock / Suspend / Shut down", "on-click": "FW_BAR=1 fw-system-menu" }
 }
