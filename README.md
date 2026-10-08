@@ -16,6 +16,8 @@ Or `git clone` the repo and run `./install.sh`. Run it as your normal user; it a
 2. Log in and run the one-liner above.
 3. Reboot.
 
+What you'll see at each step, and the Framework-only checks to do afterwards: [docs/FIRST-INSTALL.md](docs/FIRST-INSTALL.md).
+
 ## What it does
 
 | Step | Detail |
@@ -143,6 +145,10 @@ repos/*.repo               vendor repos (vscode, mise)
 system/                    copied into /usr/local/bin and /etc/systemd/system
 dotfiles/                  chezmoi source (.chezmoiroot)
 ```
+
+## Contributing
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) (setup, rules, tests, roadmap). Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
