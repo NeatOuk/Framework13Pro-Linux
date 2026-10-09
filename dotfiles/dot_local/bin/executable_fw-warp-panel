@@ -238,9 +238,11 @@ class Panel(Gtk.Window):
         elif not warp.tos_accepted():
             view = "tos"
         else:
+            # The register view (no on/off switch) only when the laptop really has no registration: a disconnected
+            # but registered laptop can still carry a registration-related reason, and needs the switch.
             st = self.data.get("status")
             view = "register" if st and "egistration" in (st.get("reason") or "").replace(" ", "") \
-                and st["status"] != "Connected" else "main"
+                and st["status"] != "Connected" and not self.data.get("registration") else "main"
         if view != self.view:
             self.view = view
             getattr(self, f"build_{view}")()
@@ -528,6 +530,8 @@ class Panel(Gtk.Window):
             if after and not err:
                 after()
             self.trace = {}  # exit IP may have changed
+            if self.data:
+                self.data["slow_at"] = 0  # re-read the registration now: it picks the view
             bar_refresh()
             self.poll()
         in_thread(fn, done)
