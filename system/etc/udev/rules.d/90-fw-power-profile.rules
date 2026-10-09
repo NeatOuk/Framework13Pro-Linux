@@ -1,0 +1,2 @@
+# Plug / unplug the charger → fw-power-profile.service sets performance (AC) or balanced (battery).
+SUBSYSTEM=="power_supply", ACTION=="change", ATTR{type}=="Mains", RUN+="/usr/bin/systemctl start --no-block fw-power-profile.service"

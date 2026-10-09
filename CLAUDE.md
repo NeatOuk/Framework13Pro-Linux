@@ -29,7 +29,9 @@ repos/*.repo               vendor repos (vscode, mise)
 rpm/                       specs we build locally: telegram-desktop-official.spec (build_telegram_rpm in install.sh)
 system/usr/local/bin/      fw-timeshift-setup, fw-timeshift-restore (rsync-mode restore on Fedora's root/home btrfs: snapshot root, rsync onto
                            the copy, swap by rename; kernels side by side + grubby; holds Timeshift's lock; undo), fw-health-root
-system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/lib/fw13/health-root.json, 0644; install.sh copies the folder only if it has files)
+system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/lib/fw13/health-root.json, 0644; install.sh copies the folder only if it has files),
+                           fw-power-profile.service (boot) + system/etc/udev/rules.d/90-fw-power-profile.rules (Mains change) → fw-power-profile:
+                           performance on AC, balanced on battery, via the PowerProfiles D-Bus API (PPD or tuned-ppd); a hand-picked profile lasts until the next plug/unplug
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_local/lib/fw13/       shared Python library → ~/.local/lib/fw13 (scripts sys.path.insert ~/.local/lib): hypr (Lua hyprctl helpers),

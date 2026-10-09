@@ -1,0 +1,10 @@
+[Unit]
+Description=Power profile follows the charger (performance on AC, balanced on battery)
+After=tuned-ppd.service power-profiles-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fw-power-profile
+
+[Install]
+WantedBy=multi-user.target

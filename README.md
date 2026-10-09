@@ -25,7 +25,7 @@ What you'll see at each step, and the Framework-only checks to do afterwards: [d
 | Repos | RPM Fusion (free + nonfree), COPR `lionheartp/Hyprland` (Hyprland was dropped from Fedora's repos in F43), Microsoft (VS Code), mise |
 | Packages | `packages/*.txt`, installed with **optional dependencies off**, so only what's listed (plus hard dependencies) gets installed |
 | Login | A clean **text login** (greetd + tuigreet): pick your user, password, and F2 for the session (Hyprland is preselected; GNOME/KDE stay selectable). An existing GDM/SDDM is **disabled, not removed**: run `KEEP_DM=1 ./install.sh` to keep it, or switch back later with `sudo systemctl disable greetd && sudo systemctl enable gdm` |
-| Power | Keeps `power-profiles-daemon` if it's installed; otherwise installs `tuned` + `tuned-ppd`. Adds `upower` for battery info and the charge limit |
+| Power | Keeps `power-profiles-daemon` if it's installed; otherwise installs `tuned` + `tuned-ppd`. Adds `upower` for battery info and the charge limit. The power profile follows the charger: **Performance** when plugged in, **Balanced** on battery (a profile you pick by hand lasts until the next plug/unplug) |
 | Codecs | Replaces `ffmpeg-free` with RPM Fusion `ffmpeg`, the only package it swaps out |
 | Fingerprint | Turns on fingerprint for sudo, login and polkit (`authselect … with-fingerprint`) |
 | Dotfiles | chezmoi applies `dotfiles/` to your home folder. It asks once for your Chromium OAuth keys and restic repository, which are never stored in git |

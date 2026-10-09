@@ -218,6 +218,8 @@ system_phase() {
   say "System files"
   $SUDO install -m 0755 system/usr/local/bin/* /usr/local/bin/
   compgen -G 'system/etc/systemd/system/*' >/dev/null && $SUDO install -m 0644 system/etc/systemd/system/* /etc/systemd/system/
+  $SUDO install -m 0644 system/etc/udev/rules.d/* /etc/udev/rules.d/   # charger plug / unplug → fw-power-profile
+  [[ $CI == 1 ]] || $SUDO udevadm control --reload
   # Timeshift schedules itself (its own /etc/cron.d jobs); our old fw-timeshift timer ran every check a second time.
   if [[ -e /etc/systemd/system/fw-timeshift.timer ]]; then
     [[ $CI == 1 ]] || $SUDO systemctl disable --now fw-timeshift.timer 2>/dev/null || true
@@ -273,6 +275,7 @@ EOF
     $SUDO systemctl enable --now bluetooth.service fwupd-refresh.timer
     $SUDO systemctl enable --now fw-health-root.timer  # root-only facts (Timeshift snapshots) for fw-health
     has_ppd || $SUDO systemctl enable --now tuned.service
+    $SUDO systemctl enable --now fw-power-profile.service  # performance on AC, balanced on battery (+ udev rule)
     $SUDO systemctl enable --now ollama.service   # local models for OpenCode (fw-opencode)
     $SUDO systemctl enable --now warp-svc.service  # Cloudflare WARP daemon; register/connect from the bar panel
   fi
