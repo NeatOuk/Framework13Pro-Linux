@@ -4,3 +4,9 @@ chromium
 code
 # Fedora official (fw-calc: units, currencies, percentages)
 qalculate
+# Fedora official (user decision): remote desktop. Plugins are separate packages (weak deps off):
+# RDP (Windows), VNC (Linux, macOS Screen Sharing / ARD with the Mac's login), secret (passwords in the keyring)
+remmina
+remmina-plugins-rdp
+remmina-plugins-vnc
+remmina-plugins-secret

@@ -70,7 +70,7 @@ docs/FIRST-INSTALL.md      what a fresh Framework install looks like + Stage 7 h
 
 | Source | Notes |
 |---|---|
-| Fedora | everything not listed below (incl. qalculate for fw-calc, udisks2 + dnf5-plugins for fw-health, fuse3 for `restic mount`) (swayosd is not packaged for Fedora 44 → dropped; volume/brightness keys use wpctl/brightnessctl) |
+| Fedora | everything not listed below (incl. qalculate for fw-calc, remmina + its rdp/vnc/secret plugins (separate packages; VNC covers macOS ARD), udisks2 + dnf5-plugins for fw-health, fuse3 for `restic mount`) (swayosd is not packaged for Fedora 44 → dropped; volume/brightness keys use wpctl/brightnessctl) |
 | COPR `lionheartp/Hyprland` | hyprland, hyprlock, hypridle, hyprpaper, hyprpolkitagent, hyprpicker, hyprsunset, hyprland-guiutils, xdg-desktop-portal-hyprland. Hyprland was **retired from Fedora in F43** and the COPR only builds F44+ (hence the ≥44 preflight); swap via `HYPR_COPR=… ./install.sh` (`HYPR_COPR=` = Fedora only) |
 | COPR `lionheartp/Hyprland` (theme) | matugen 4.2.0 (wallpaper → Material You palette). Not from Fedora: F44 ships 3.1.0, which rejects the engine's `--prefer`/`-t scheme-*` flags. Installed as `'matugen >= 4'` only when `HYPR_COPR` is set (a COPR without 4.x fails loudly); otherwise the theme stays Tokyo Night |
 | Fedora (AI) | ollama (system service, local models for OpenCode) |
