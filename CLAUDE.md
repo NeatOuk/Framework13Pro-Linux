@@ -105,6 +105,8 @@ python3 -c 'import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]
 
 There is no unit-test suite: verification is lint + dry-run + CI install (`.github/workflows/test.yml`) + the hardware checklist in `docs/FIRST-INSTALL.md`. Local dotfile edits are not what `chezmoi update` applies (it pulls the pushed repo), so push before testing on the machine. `CONTRIBUTING.md` has the commit conventions (`feat(area):`, `fix(area):`, `chore:`, `docs:`; update README and this file in the same change) and the roadmap.
 
+**Commits (user decision):** commit (and push) every change as soon as it is made, one change per commit; never add `Co-Authored-By` or other attribution/session trailers to commit messages.
+
 Package-resolution failures are intended to fail loudly — fix the name (and ask the user if it means a source change); never add `--skip-unavailable`.
 
 ## Conventions
