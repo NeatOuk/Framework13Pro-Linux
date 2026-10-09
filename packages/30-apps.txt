@@ -9,5 +9,3 @@ qalculate
 RemoteDesktopManager
 # Fedora official: Secret Service for RDM's saved passwords (libsecret); Workstation has it, Minimal does not
 gnome-keyring
-# Fedora official (user decision): Fortinet SSL VPN client, CLI (pulls ppp); runs beside WARP with split-tunnel excludes
-openfortivpn
