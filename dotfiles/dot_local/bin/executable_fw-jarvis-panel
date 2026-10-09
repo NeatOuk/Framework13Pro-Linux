@@ -76,8 +76,17 @@ INLINE_NOTE = ("You are answering inline in Jarvis's small panel. Be brief and p
                "Use plain `sudo` inside the command for root steps and set root to true (the panel runs root cards "
                "through pkexec, which asks the owner to authenticate). One command per card, no "
                "interactive programs, nothing that needs a terminal. Bigger jobs (edits across files, many steps) "
-               "belong in \"Continue in terminal\": say so instead of proposing cards.")
+               "belong in \"Continue in terminal\": say so instead of proposing cards.\n"
+               "After an answer that proposes no action card, you may end with exactly one block of 2 or 3 short "
+               "questions (under 60 characters, in the owner's language) the owner is likely to ask next; they "
+               "become buttons:\n"
+               "```jarvis-followups\n"
+               "[\"first question?\", \"second question?\"]\n"
+               "```\n"
+               "Leave it out when nothing useful comes next.")
 ACTION_RE = re.compile(r"```jarvis-action[ \t]*\n(.*?)(?:\n```|\Z)", re.S)
+FOLLOWUPS_RE = re.compile(r"```jarvis-followups[ \t]*\n(.*?)(?:\n```|\Z)", re.S)
+MAX_CHIPS = 3
 DANGER_RE = re.compile(r"\brm\s+-[a-zA-Z]*[rf]|\bdd\b|\bmkfs|\bwipefs\b|--force\b|\bshred\b|>\s*/dev/sd|\bfdisk\b"
                        r"|\bparted\b|\bchmod\s+-R\b|\bchown\s+-R\b|\bdnf\s+(remove|erase)\b")
 RUN_TIMEOUT = 120
@@ -177,6 +186,20 @@ def markdown_to_pango(md):
     return "\n".join(out)
 
 
+def parse_followups(text):
+    """Suggested next questions from a complete jarvis-followups block in `text` (at most MAX_CHIPS strings)."""
+    for m in FOLLOWUPS_RE.finditer(text):
+        if not m.group(0).rstrip().endswith("```"):
+            continue  # cut off
+        try:
+            items = json.loads(m.group(1))
+        except ValueError:
+            continue
+        if isinstance(items, list):
+            return [q.strip() for q in items if isinstance(q, str) and q.strip()][:MAX_CHIPS]
+    return []
+
+
 def parse_actions(text):
     """Complete jarvis-action blocks in `text` → [{title, command, why, how, root}] (malformed ones skipped)."""
     out = []
@@ -251,6 +274,14 @@ class Panel(Gtk.Window):
         box.pack_start(self.card_box, False, False, 0)
         self.turn_start = 0
 
+        self.chips = Gtk.FlowBox()  # suggested follow-up questions of the last answer
+        self.chips.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.chips.set_min_children_per_line(1)
+        self.chips.set_max_children_per_line(3)
+        self.chips.set_homogeneous(False)
+        self.chips.set_no_show_all(True)
+        box.pack_start(self.chips, False, False, 0)
+
         self.status = label("", "dim")
         self.status.set_line_wrap(True)
         box.pack_start(self.status, False, False, 0)
@@ -270,7 +301,7 @@ class Panel(Gtk.Window):
         more.pack_start(button("Open Claude", lambda: self.jarvis("open", "claude")), False, False, 0)
         more.pack_start(button("Open OpenCode", lambda: self.jarvis("open", "opencode")), False, False, 0)
         box.pack_start(more, False, False, 0)
-        self.hint = label("Enter asks · proposed changes run only when you press Run · Esc closes", "dim")
+        self.hint = label("Enter asks (a follow-up while an answer is open) · proposed changes run only when you press Run · Esc closes", "dim")
         box.pack_start(self.hint, False, False, 0)
         self.add(box)
 
@@ -290,13 +321,26 @@ class Panel(Gtk.Window):
         q = self.entry.get_text().strip()
         if not q or self.proc:
             return
-        self.last_target, self.session, self.answer = self.agent.get_active_id() or "claude", None, ""
+        target = self.agent.get_active_id() or "claude"
+        if self.answer and target == self.last_target:
+            self.follow(q)  # another question in the same conversation; "New question" starts afresh
+            return
+        self.last_target, self.session, self.answer = target, None, ""
         self.start(q)
+
+    def follow(self, q):
+        """Ask `q` as a follow-up: same conversation, shown under the previous answer."""
+        if self.proc:
+            return
+        self.entry.set_text("")
+        self.answer += f"\n\n**You:** {q}"
+        self.start(q, follow_up=True)
 
     def start(self, prompt, follow_up=False):
         """Run the agent once; a follow-up (an action's result) continues the same conversation."""
         target = self.last_target
         self.clear_card()
+        self.clear_chips()
         if target == "claude":
             cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--include-partial-messages",
                    "--verbose", "--append-system-prompt", INLINE_NOTE, "--add-dir", "/",
@@ -372,7 +416,7 @@ class Panel(Gtk.Window):
         return False
 
     def show_answer(self, md):
-        md = ACTION_RE.sub("", md).rstrip()  # action blocks become cards, not text
+        md = FOLLOWUPS_RE.sub("", ACTION_RE.sub("", md)).rstrip()  # action blocks become cards, chips buttons
         self.view.set_markup(markdown_to_pango(md) if md else "")
         self.scroll.set_visible(bool(md))
         self.view.show()
@@ -403,7 +447,26 @@ class Panel(Gtk.Window):
             self.show_card(actions[0])
             if not self.status.get_style_context().has_class("bad"):
                 self.set_status(f"Done · {took} · nothing runs until you press Run")
+        elif rc == 0 or self.answer:
+            self.show_chips(parse_followups(self.answer[self.turn_start:]))
+        self.entry.set_placeholder_text("Ask a follow-up…" if self.answer else "Ask anything about this computer…")
         return False
+
+    # ---- follow-up chips ----------------------------------------------------------------------------------------
+    def clear_chips(self):
+        for c in self.chips.get_children():
+            self.chips.remove(c)
+        self.chips.hide()
+
+    def show_chips(self, questions):
+        self.clear_chips()
+        for q in questions:
+            b = button(q, lambda q=q: self.follow(q))
+            b.set_halign(Gtk.Align.START)
+            self.chips.add(b)
+        if questions:
+            self.chips.show_all()
+            self.resize(PANEL_W, 1)
 
     # ---- action cards -------------------------------------------------------------------------------------------
     def clear_card(self):
@@ -513,6 +576,8 @@ class Panel(Gtk.Window):
         self.entry.set_sensitive(True)
         self.answer, self.session = "", None
         self.clear_card()
+        self.clear_chips()
+        self.entry.set_placeholder_text("Ask anything about this computer…")
         self.show_answer("")
         self.set_status("")
         self.cont.hide()
