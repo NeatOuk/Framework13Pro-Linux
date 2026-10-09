@@ -57,7 +57,7 @@ jobs:
         run: ./install.sh --ci 2>&1 | tee install.log
       - name: Verify key binaries and dotfiles
         run: |
-          for b in Hyprland hyprlock hypridle waybar fuzzel kitty uwsm chromium-browser code steam timeshift restic mise citadel citadel-daemon citadel-app; do
+          for b in Hyprland hyprlock hypridle waybar fuzzel kitty ghostty uwsm chromium-browser code steam timeshift restic mise citadel citadel-daemon citadel-app; do
             if command -v "$b" >/dev/null; then echo "ok  $b"; else echo "MISSING $b"; exit 1; fi
           done
           rpm -q citadel citadel-helper   # built from the owner's repos by install.sh
