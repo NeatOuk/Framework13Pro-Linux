@@ -51,8 +51,8 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
                            values in one table, non-Framework → SKIP), notify (shared notification + session_env; crash-watch and health use it),
                            setup also owns optional [data.restic_creds] (S3 keys only; AWS_* rendered only for s3:; restic-backup.service is a
                            template adding -o sftp.args=-oBatchMode=yes for sftp:)
-                           Generated in ~/.config/fw13/theme/: hypr.lua hyprlock.conf waybar.css fuzzel.ini mako kitty.conf ghostty (create_ seeds)
-                           + gtk3.css gtk4.css qt6ct-colors.conf fcitx5-theme.conf framework-logo.svg (written by theme.init/ensure_files) + desktop.jpg lock.jpg (fw13.wallpaper)
+                           Generated in ~/.config/fw13/theme/: hypr.lua hyprlock.conf waybar.css fuzzel.ini mako kitty.conf (create_ seeds)
+                           + ghostty gtk3.css gtk4.css qt6ct-colors.conf fcitx5-theme.conf framework-logo.svg (written by theme.init/ensure_files) + desktop.jpg lock.jpg (fw13.wallpaper)
                            Session-only app theming (session_start/session_end, Hyprland only): fcitx5 Theme=fw13 in classicui.conf (old values
                            restored), Chromium extensions.theme.system_theme=1 once per profile when unset and Chromium isn't running (opt-in Appearance switch `chromium_gtk_force` also replaces a theme the user chose and writes `~/.config/fw13/theme/chromium-policy.json` = BrowserThemeColor from the accent, re-read live via SIGHUP; install.sh links `/etc/chromium/policies/managed/fw13-theme.json` to it), VS Code
                            workbench.colorCustomizations (on by default, Appearance switch, strict JSON only, removed at logout); TUIs follow the terminal's 16 colours (kitty.conf / ghostty in ~/.config/fw13/theme/; Ghostty reloads on SIGUSR2)

@@ -10,12 +10,13 @@ GTK and Qt apps follow too (read at app start; GTK 3 also live, see apply_gtk())
                         is adw-gtk3[-dark] plus gtk3.css/gtk4.css; libadwaita apps ignore GTK themes and read
                         ~/.config/gtk-4.0/gtk.css, which @imports gtk4.css (only when that file is ours, see
                         link_gtk()).
+  ghostty               Ghostty colours; ~/.config/ghostty/config includes it (optional: "?" path).
   qt6ct-colors.conf     qt6ct colour scheme; ~/.config/qt6ct/qt6ct.conf points at it and ~/.config/uwsm/env-hyprland
                         sets QT_QPA_PLATFORMTHEME=qt6ct for the Hyprland session only (new Qt apps after re-login).
   fcitx5-theme.conf     fcitx5 classic UI theme; ~/.local/share/fcitx5/themes/fw13/theme.conf links to it
                         (link_fcitx()) and classicui.conf selects it in Hyprland sessions (apply_fcitx()).
-These four are not chezmoi seeds: ensure_files() (init(), run_once) writes them from the current palette, so an
-upgrade of a wallpaper-following install does not start out with Tokyo Night GTK/Qt colours.
+These are not chezmoi seeds: ensure_files() (init(), run_once) writes them from the current palette, so an
+upgrade of a wallpaper-following install does not start out with Tokyo Night GTK/Qt/Ghostty colours.
 
 Apps with their own settings files, changed only from a Hyprland session:
   Chromium   GTK mode (extensions.theme.system_theme) once per profile at login, unless the user chose a theme
