@@ -2,7 +2,7 @@
 """Jarvis panel (SUPER+A): type a question, the answer streams in right here.
 
 Inline answers are read-only: the agent runs one-shot (`claude -p`, or `opencode run` for an Ollama server set up in
-the OpenCode panel) in ~/.local/share/jarvis, whose AGENTS.md briefs it on this OS, and may only read files and run
+the OpenCode panel) in ~/jarvis, whose AGENTS.md briefs it on this OS, and may only read files and run
 read-only commands. When something needs changing, "Continue in terminal" reopens the same conversation as a full
 session (`claude --resume <id>` / `opencode -c`), where every change is asked for and root actions are explained
 first. The other Jarvis actions are buttons: Work on repo (with what you typed), Diagnose last crash, Open Claude or
@@ -36,7 +36,8 @@ from fw13.ui_theme import button, label  # noqa: E402
 
 RUNTIME = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 PIDFILE = os.path.join(RUNTIME, "fw-jarvis-panel.pid")
-JDIR = os.path.expanduser("~/.local/share/jarvis")
+JDIR = os.path.expanduser("~/jarvis")
+os.makedirs(JDIR, exist_ok=True)  # the working folder of every Jarvis agent run; chezmoi adds its AGENTS.md/CLAUDE.md
 PANEL_W = 680
 
 # What the inline agent may do without asking (one-shot mode can't ask): read anywhere (--add-dir /) except the
@@ -450,6 +451,7 @@ class Panel(Gtk.Window):
         elif rc == 0 or self.answer:
             self.show_chips(parse_followups(self.answer[self.turn_start:]))
         self.entry.set_placeholder_text("Ask a follow-up…" if self.answer else "Ask anything about this computer…")
+        self.entry.grab_focus()
         return False
 
     # ---- follow-up chips ----------------------------------------------------------------------------------------
@@ -465,7 +467,9 @@ class Panel(Gtk.Window):
             b.set_halign(Gtk.Align.START)
             self.chips.add(b)
         if questions:
-            self.chips.show_all()
+            for c in self.chips.get_children():
+                c.show_all()
+            self.chips.show()  # no_show_all: show_all() would skip it
             self.resize(PANEL_W, 1)
 
     # ---- action cards -------------------------------------------------------------------------------------------

@@ -18,7 +18,7 @@ A machine already set up by the installer has everything needed (Hyprland, chezm
 | Installer | `install.sh`, `packages/*.txt`, `repos/*.repo` |
 | Root files | `system/usr/local/bin/`, `system/etc/systemd/system/` |
 | Dotfiles (chezmoi source) | `dotfiles/`: Hyprland Lua config in `dot_config/hypr/`, helpers in `dot_local/bin/executable_fw-*`, the shared Python library in `dot_local/lib/fw13/` |
-| Jarvis briefing | `dotfiles/dot_local/share/jarvis/AGENTS.md` |
+| Jarvis briefing | `dotfiles/jarvis/AGENTS.md` (→ `~/jarvis/`) |
 | CI | `.github/workflows/test.yml` |
 
 ## Rules that matter most

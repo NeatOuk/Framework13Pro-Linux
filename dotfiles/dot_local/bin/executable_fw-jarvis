@@ -5,10 +5,11 @@
 #   fw-jarvis menu             the older fuzzel menu
 #   fw-jarvis crash | repo <agent> <task> | open claude|opencode   the panel's buttons
 #   fw-jarvis diagnose <file>  explain a crash report (fw-crash-watch) or a daily health report (fw-health)
-# Ask/Diagnose run in ~/.local/share/jarvis, whose AGENTS.md/CLAUDE.md brief the agent on this OS.
+# Ask/Diagnose run in ~/jarvis (created if missing), whose AGENTS.md/CLAUDE.md brief the agent on this OS.
 set -euo pipefail
 
-JDIR="$HOME/.local/share/jarvis"
+JDIR="$HOME/jarvis"
+mkdir -p "$JDIR"
 CRASHES="${XDG_RUNTIME_DIR:-/tmp}/jarvis"
 REPO="$HOME/.local/share/fw13-hypr"
 for d in "$HOME/fw13-hyprland" "$HOME/Framework13Pro-Linux"; do   # owner's clone (new name, old name)
