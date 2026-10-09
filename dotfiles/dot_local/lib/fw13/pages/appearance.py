@@ -1,4 +1,4 @@
-"""Appearance: theme colours (wallpaper palette via matugen, or Tokyo Night), wallpaper gallery and effects,
+"""Appearance: theme colours (wallpaper palette via matugen, or Tokyo Night) and font, wallpaper gallery and effects,
 window gaps and border size (rounding stays 0 — house style).
 
 HyprPage is shared with Input: both write ~/.config/hypr/settings.lua through fw13.hyprsettings.
@@ -282,6 +282,9 @@ class AppearancePage(HyprPage):
             controls.append(self.row("Mode", mode))
             controls.append(self.row("Style", style, hint="How matugen builds the palette from the image"))
         self.row("Palette", swatches(), hint="Hover a colour for its name")
+        controls.append(self.row("Font", combo([(n, n) for n in theme.fonts()], theme.font(), self.set_font),
+                                 hint="Bar, menus, notifications, lock screen, these panels and the terminals "
+                                      "(fixed-width fonts only, for the terminals)"))
         vscode = Gtk.Switch()
         vscode.set_active(bool(store.get(theme.VSCODE_ON)))
         vscode.connect("notify::active", lambda s, _p: self.set_vscode(s.get_active()))
@@ -337,6 +340,15 @@ class AppearancePage(HyprPage):
         background(lambda: wp.set_theme(source, mode=mode, scheme_type=scheme_type), self.theme_set)
         GLib.idle_add(self.refresh_if_open)  # grey out the controls (not from inside their own signal)
 
+    def set_font(self, name):
+        if self.theming:  # one at a time: set_font() and set_source() both rewrite the theme files
+            self.queued = ("font", name)
+            return
+        self.theming = True
+        self.show_status(f"Font: {name}…", "dim")
+        background(lambda: theme.set_font(name), self.theme_set)
+        GLib.idle_add(self.refresh_if_open)
+
     def theme_set(self, err):
         self.theming = False
         sync()  # don't wait for the file monitor
@@ -344,6 +356,8 @@ class AppearancePage(HyprPage):
             nxt, self.queued = self.queued, None
             if nxt == ("reset",):
                 self.reset()
+            elif nxt[0] == "font":
+                self.set_font(nxt[1])
             else:
                 self.set_theme(*nxt)
             return False
@@ -369,12 +383,12 @@ class AppearancePage(HyprPage):
             box.pack_start(button("Cancel", lambda: self.ask_reset(False)), False, False, 0)
             box.pack_start(button("Reset", self.reset, "danger"), False, False, 0)
             self.row("Reset every Appearance and Input setting?", box,
-                     hint="Theme back to Tokyo Night; touchpad, keyboard and layouts too; Hyprland reloads")
+                     hint="Theme back to Tokyo Night and JetBrains Mono; touchpad, keyboard and layouts too; Hyprland reloads")
         else:
             reset = button("Reset to defaults", lambda: self.ask_reset(True), "danger")
             reset.set_halign(Gtk.Align.START)
             self.row("Back to the shipped look", reset,
-                     hint="Tokyo Night and every Appearance and Input change (touchpad, keyboard too); "
+                     hint="Tokyo Night, JetBrains Mono and every Appearance and Input change (touchpad, keyboard too); "
                           "the wallpaper is kept")
         self.show_all()
 
@@ -510,6 +524,7 @@ class AppearancePage(HyprPage):
         self.theming = True
 
         def work():
+            store.set(theme.FONT, theme.DEFAULT_FONT)  # written with the theme files just below
             errs = [e for e in (hs.reset(), wp.set_theme("tokyo-night", mode="dark",
                                                          scheme_type=theme.DEFAULT_TYPE)) if e]
             return "; ".join(errs) or None

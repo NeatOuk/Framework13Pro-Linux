@@ -3,5 +3,6 @@ background-color=#1a1b26
 text-color=#a9b1d6
 border-color=#7aa2f7
 progress-color=over #7aa2f766
+font=JetBrains Mono 11
 [urgency=critical]
 border-color=#f7768e

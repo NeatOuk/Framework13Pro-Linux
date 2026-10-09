@@ -1,6 +1,5 @@
-# Colours (incl. the critical border and the progress bar): written by fw13.theme
+# Colours (incl. the critical border and the progress bar) and the font: written by fw13.theme
 include=~/.config/fw13/theme/mako
-font=JetBrains Mono 11
 border-size=2
 border-radius=0
 padding=12

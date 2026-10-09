@@ -1,4 +1,4 @@
-"""GTK3 look shared by fw-settings and the bar panels: flat, no rounding, JetBrains Mono.
+"""GTK3 look shared by fw-settings and the bar panels: flat, no rounding, the fw13 font (theme.font()).
 
 Colours come from fw13.theme.palette() (Tokyo Night, or the wallpaper palette). install() watches
 ~/.config/fw13/theme/ and the settings store, so an open window recolours when the theme changes; widgets that
@@ -18,7 +18,7 @@ from . import store, theme  # noqa: E402
 
 CSS = string.Template("""
 window, .page { background: $bg; color: $fg;
-                font-family: "JetBrains Mono", "Font Awesome 6 Free"; font-size: 11pt; }
+                font-family: "$font", "Font Awesome 6 Free"; font-size: 11pt; }
 window.panel { border: 2px solid $accent; }
 .title { color: $accent; }
 .heading { color: $fg_bright; font-weight: bold; margin-top: 8px; }
@@ -88,7 +88,7 @@ def _load():
 def css(p=None):
     """The stylesheet (bytes) for palette `p` (default: the current one)."""
     p = p or _current
-    return CSS.substitute({k: v[:7] for k, v in p.items()}).encode()
+    return CSS.substitute({**{k: v[:7] for k, v in p.items()}, "font": theme.font()}).encode()
 
 
 def rgb(role, p=None):

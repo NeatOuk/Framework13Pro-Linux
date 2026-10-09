@@ -289,6 +289,44 @@ def _hypr_values(p):
 
 HEAD = "Written by fw13.theme (Settings → Appearance). Changes here are replaced."
 
+FONT = "font"  # fw13.store key: one font for the bar, menus, notifications, lock screen, panels and terminals
+DEFAULT_FONT = "JetBrains Mono"
+
+
+def _font_ok(name):
+    """A family name safe to write into every config format (no quotes, newlines or separators)."""
+    return isinstance(name, str) and re.fullmatch(r"\w[\w .+&-]{0,63}", name) is not None
+
+
+def fonts():
+    """Installed monospace font families, sorted: the font also drives the terminals, so it has to be fixed-width."""
+    try:
+        out = subprocess.run(["fc-list", ":spacing=mono", "family"], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    names = {line.split(",")[0].strip() for line in out.splitlines()}
+    return sorted({n for n in names if _font_ok(n) and "Emoji" not in n} | {DEFAULT_FONT}, key=str.lower)
+
+
+def font():
+    name = store.get(FONT)
+    return name if _font_ok(name) else DEFAULT_FONT
+
+
+def set_font(name):
+    """Store `name`, rewrite every generated file and reload the apps. Returns None or an error message."""
+    if name not in fonts():
+        return f"Font not installed: {name}"
+    old = store.get(FONT)
+    store.set(FONT, name)
+    try:
+        write(palette())
+    except OSError as e:
+        store.set(FONT, old)  # the choice shown must match the files
+        return f"Could not write the theme files: {e}"
+    return None
+
 
 def _gtk_colors(p):
     """libadwaita / adw-gtk3 named colours for palette `p` (same roles as fw-settings' own ui_theme)."""
@@ -396,6 +434,7 @@ def _fcitx_theme(p):
 def render(p):
     """{filename in ~/.config/fw13/theme: text} for palette `p`."""
     v = _hypr_values(p)
+    f = font()
     hypr = (f"-- {HEAD}\n-- Read by ~/.config/hypr/theme.lua (falls back to Tokyo Night if this file breaks).\n"
             "return {\n" + "".join(f'  {k:<7} = "{c}",\n' for k, c in v.items()) + "}\n")
     waybar = (f"/* {HEAD} */\n"
@@ -404,8 +443,9 @@ def render(p):
               f"@define-color accent {p['accent']};\n"
               f"@define-color muted {p['muted']};\n"
               f"@define-color red {p['bad']};\n"
-              f"@define-color yellow {p['warn']};\n")
-    fuzzel = (f"# {HEAD}\n[colors]\n"
+              f"@define-color yellow {p['warn']};\n"
+              f'* {{ font-family: "{f}", "Font Awesome 6 Free", "Font Awesome 6 Brands", "Noto Sans Khmer", sans-serif; }}\n')
+    fuzzel = (f"# {HEAD}\n[main]\nfont={f}:size=12,Font Awesome 6 Free:size=12\n[colors]\n"
               f"background={_a(p['bg'], 'f2')}\n"
               f"text={_a(p['fg'])}\n"
               f"match={_a(p['accent'])}\n"
@@ -417,10 +457,12 @@ def render(p):
             f"background-color={p['bg']}\n"
             f"text-color={p['fg']}\n"
             f"border-color={p['border']}\n"
-            f"progress-color=over #{_a(p['accent'], '66')}\n"  # fw-osd volume/brightness bar, text stays readable
+            f"progress-color=over #{_a(p['accent'], '66')}\n"
+            f"font={f} 11\n"  # fw-osd volume/brightness bar, text stays readable
             "[urgency=critical]\n"
             f"border-color={p['bad']}\n")
     kitty = [f"# {HEAD}",
+             f"font_family {f}",
              f"background {p['bg']}",
              f"foreground {p['fg']}",
              f"selection_background {p['surface2']}",
@@ -428,6 +470,7 @@ def render(p):
     for i in range(8):
         kitty += [f"color{i:<2} {p['ansi'][i]}", f"color{i + 8:<2} {p['ansi'][i + 8]}"]
     ghostty = [f"# {HEAD}",
+               f"font-family = {f}",
                f"background = {p['bg']}",
                f"foreground = {p['fg']}",
                f"selection-background = {p['surface2']}",
@@ -435,6 +478,7 @@ def render(p):
                f"cursor-color = {p['fg_bright']}"]
     ghostty += [f"palette = {i}={p['ansi'][i]}" for i in range(16)]
     hyprlock = (f"# {HEAD}\n"
+                f"$fw_font = {f}\n"
                 f"$fw_base = rgba({_a(p['bg'])})\n"
                 f"$fw_inner = rgba({_a(p['bg'], 'cc')})\n"
                 f"$fw_outer = rgba({_a(p['accent'])})\n"
@@ -602,13 +646,14 @@ def _atomic_user(path, text):
 
 # Lines a generated file must hold; one of ours (HEAD on top) written before a line was added is rewritten by
 # ensure_files() (written only on a palette change otherwise, so an existing install would never get it).
-REQUIRED = {"mako": "progress-color="}
+REQUIRED = {"mako": ("progress-color=", "font="), "fuzzel.ini": ("font=",), "waybar.css": ("font-family",),
+            "hyprlock.conf": ("$fw_font",)}
 
 
 def _outdated(name):
     text = _read_quiet(os.path.join(DIR, name))
     return (name in REQUIRED and text is not None and HEAD in text.split("\n", 1)[0]
-            and REQUIRED[name] not in text)
+            and any(line not in text for line in REQUIRED[name]))
 
 
 def ensure_files():

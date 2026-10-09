@@ -8,7 +8,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
-from . import als, displays  # noqa: E402
+from . import als, displays, theme  # noqa: E402
 from .ui_theme import rgb, watch  # noqa: E402
 
 KEEP_SECONDS = 15
@@ -172,7 +172,7 @@ class DisplayEditor(Gtk.Box):
             cr.set_line_width(2)
             cr.stroke()
             cr.set_source_rgb(*rgb("fg_bright"))
-            cr.select_font_face("JetBrains Mono")
+            cr.select_font_face(theme.font())
             cr.set_font_size(12)
             for i, text in enumerate((m.name, f"{m.scale:.2f}".rstrip("0").rstrip(".") + "×")):
                 ext = cr.text_extents(text)
