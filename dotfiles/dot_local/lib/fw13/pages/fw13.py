@@ -13,7 +13,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from .. import setup, store  # noqa: E402
+from .. import setup, store, terminal  # noqa: E402
 from ..ui_theme import button  # noqa: E402
 from .appearance import background  # noqa: E402
 from .common import Page, label, launch, wrap  # noqa: E402
@@ -151,6 +151,8 @@ class Fw13Page(Page):
         self.render_ollama(st["ollama"]["api_key"])
         self.heading("Backups (restic)")
         self.render_restic(st["restic"])
+        self.heading("Terminal")
+        self.render_terminal()
         self.heading("Login shell")
         self.render_shell()
         self.heading("Dotfiles")
@@ -249,6 +251,25 @@ class Fw13Page(Page):
         self.item("Restore", "A terminal with the repository loaded: list snapshots, browse them as folders "
                   "(restic mount) or restore a path into ~/restore",
                   [button("Open terminal", lambda: launch("fw-term", "-e", "bash", "-c", RESTORE_SH))])
+
+    def render_terminal(self):
+        terms = terminal.installed()
+        cur = terminal.current()
+        combo = Gtk.ComboBoxText()
+        for tid, lbl, ok in terms:
+            if ok:
+                combo.append(tid, lbl)
+        combo.set_active_id(cur)
+        combo.connect("changed", lambda c: self.set_terminal(c.get_active_id()))
+        missing = [lbl for _t, lbl, ok in terms if not ok]
+        self.row("Default terminal", combo,
+                 hint="SUPER+Return, the bar, Jarvis and these pages open it; new windows only"
+                 + (f" · {', '.join(missing)} isn't installed (install.sh builds Ghostty)" if missing else ""))
+
+    def set_terminal(self, tid):
+        if tid and tid != terminal.current():
+            store.set("terminal", tid)
+            self.set_status(f"New terminal windows open in {dict((t, l) for t, l, _ in terminal.installed())[tid]}", "ok")
 
     def render_shell(self):
         shells, cur = self.st["shells"], self.st["shell"]
