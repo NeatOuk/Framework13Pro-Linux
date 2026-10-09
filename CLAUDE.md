@@ -83,7 +83,7 @@ docs/FIRST-INSTALL.md      what a fresh Framework install looks like + Stage 7 h
 | Repackaged official binary (telegram.org) | **Telegram Desktop** (user decision: the official build, as an RPM). `build_telegram_rpm` reads the version from telegram.org's download redirect, downloads the tarball (no checksum is published: HTTPS only) plus the launcher entry, D-Bus service and icons from github.com/telegramdesktop/tdesktop at the same tag, and builds `telegram-desktop-official` (`/opt/telegram`, `/usr/bin/Telegram`, `Conflicts: telegram-desktop`). Its self-updater is off via `externalupdater.d`; re-running install.sh rebuilds when telegram.org has a newer version, otherwise it's a no-op |
 | Upstream installer | Claude Code via `curl -fsSL https://claude.ai/install.sh \| bash` → `~/.local/bin/claude`, self-updating. Not via mise npm: that skipped the package's postinstall, so no binary |
 
-Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freeworld`, toolbox, Docker CE, ProtonUp-Qt, Nerd Fonts, snapper/btrfs-assistant, Qt5 removal, CJK font removal, swayosd COPR, Arch support, bootc/ISO image.
+Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freeworld`, toolbox, Docker CE, ProtonUp-Qt, Nerd Fonts, snapper/btrfs-assistant, Qt5 removal, CJK font removal, swayosd COPR, Arch support, bootc/ISO image, a single-process shell (Quickshell/AGS/DankMaterialShell replacing Waybar/fuzzel/mako/our panels), and the other ideas from the Oct 2026 comparison with ML4W/JaKooLit/Omarchy/end-4/HyDE/Caelestia (overview with live previews, theme gallery, keybind cheat sheet, OCR, DDC/CI brightness, clamshell handling, bar weather/reminders): the current design stays.
 
 ## Commands
 
