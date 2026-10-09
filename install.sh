@@ -395,7 +395,8 @@ user_phase() {
   # 53317/tcp+udp, which the installer leaves closed (firewall untouched, user decision).
   flatpak install --user -y --noninteractive flathub org.localsend.localsend_app || warn "LocalSend (Flathub) didn't install — retry: flatpak install --user flathub org.localsend.localsend_app"
 
-  if ask "Enroll a fingerprint now?"; then fprintd-enroll || warn "fingerprint enroll failed — retry later: fprintd-enroll"; fi
+  # Only when nothing is enrolled: fprintd-enroll replaces an existing print, and an interrupted run leaves none.
+  if ! fprintd-list "$USER" 2>/dev/null | grep -q ' - #[0-9]' && ask "Enroll a fingerprint now?"; then fprintd-enroll || warn "fingerprint enroll failed — retry later: fprintd-enroll"; fi
   if ask "Set up Timeshift snapshots now?"; then $SUDO fw-timeshift-setup || warn "retry later: sudo fw-timeshift-setup"; fi
 
   say "Firmware (LVFS)"
