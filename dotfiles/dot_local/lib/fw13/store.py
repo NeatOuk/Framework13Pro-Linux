@@ -4,7 +4,7 @@ import os
 import tempfile
 
 PATH = os.path.expanduser("~/.config/fw13/settings.json")
-DEFAULTS = {"nightlight_temp": 4000, "vscode_theme": True}  # vscode_theme = theme.VSCODE_ON: on unless switched off
+DEFAULTS = {"nightlight_temp": 4000, "vscode_theme": True, "terminal": "kitty"}  # vscode_theme = theme.VSCODE_ON: on unless switched off
 
 
 def load():
