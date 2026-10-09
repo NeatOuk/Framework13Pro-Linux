@@ -20,6 +20,11 @@ CITADEL_APP_REPO="${CITADEL_APP_REPO:-https://github.com/NeatOuk/citadel-app.git
 CITADEL_APP_REF="${CITADEL_APP_REF:-main}"
 CITADEL_HELPER_REPO="${CITADEL_HELPER_REPO:-https://github.com/NeatOuk/citadel-helper.git}"
 CITADEL_HELPER_REF="${CITADEL_HELPER_REF:-v1.3.2}"
+# Ghostty (Settings → fw13 → Terminal): built from the official release tarball. The sha256 is pinned per version
+# (checked once against the release's minisign signature, key in Ghostty's PACKAGING.md). GHOSTTY=0 skips it.
+GHOSTTY="${GHOSTTY:-1}"
+GHOSTTY_VERSION="${GHOSTTY_VERSION:-1.3.1}"
+GHOSTTY_SHA256="${GHOSTTY_SHA256:-3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb}"
 STATE_DIR="$HOME/.local/state/fw13-hypr"
 
 YES=0 CI=0 DO_SYSTEM=1 DO_USER=1
@@ -121,6 +126,40 @@ build_telegram_rpm() {
   ls -t "$top"/RPMS/x86_64/telegram-desktop-official-"$ver"-*.rpm 2>/dev/null | head -1
 }
 
+# ============================================================================
+# build_ghostty_rpm → prints the built RPM's path, or nothing when the installed one is already current.
+# The release tarball must match GHOSTTY_SHA256. Ghostty builds with one exact Zig version (minimum_zig_version in
+# build.zig.zon; Fedora's zig is newer), so that Zig comes from ziglang.org, checked against its index.json, and is
+# only used for the build. Spec: rpm/ghostty-official.spec.
+build_ghostty_rpm() {
+  local top="$STATE_DIR/ghostty" ver=$GHOSTTY_VERSION have tarball zv zdir arch=x86_64-linux
+  have="$(rpm -q --qf '%{VERSION}' ghostty-official 2>/dev/null || true)"
+  [[ $have == "$ver" ]] && return 0
+  mkdir -p "$top"/{SOURCES,RPMS,BUILD,SRPMS,SPECS,zig-cache}
+  tarball="$top/SOURCES/ghostty-$ver.tar.gz"
+  if ! echo "$GHOSTTY_SHA256  $tarball" | sha256sum -c --quiet 2>/dev/null; then
+    curl -fsSL -o "$tarball" "https://release.files.ghostty.org/$ver/ghostty-$ver.tar.gz" || return 1
+    echo "$GHOSTTY_SHA256  $tarball" | sha256sum -c --quiet \
+      || { warn "ghostty-$ver.tar.gz doesn't match GHOSTTY_SHA256" >&2; rm -f "$tarball"; return 1; }
+  fi
+  zv="$(tar -xzOf "$tarball" "ghostty-$ver/build.zig.zon" | sed -n 's/.*minimum_zig_version = "\([0-9.]*\)".*/\1/p')"
+  [[ $zv =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { warn "no minimum_zig_version in ghostty-$ver" >&2; return 1; }
+  zdir="$top/zig-$zv"
+  if [[ ! -x $zdir/zig ]]; then
+    local url sum
+    { read -r url; read -r sum; } < <(curl -fsSL https://ziglang.org/download/index.json | python3 -c '
+import json, sys
+d = json.load(sys.stdin)[sys.argv[1]][sys.argv[2]]
+print(d["tarball"]); print(d["shasum"])' "$zv" "$arch") || { warn "Zig $zv isn't in ziglang.org's index" >&2; return 1; }
+    curl -fsSL -o "$top/zig.tar.xz" "$url" || return 1
+    echo "$sum  $top/zig.tar.xz" | sha256sum -c --quiet || { warn "Zig $zv download doesn't match its checksum" >&2; return 1; }
+    mkdir -p "$zdir" && tar -xJf "$top/zig.tar.xz" -C "$zdir" --strip-components=1 && rm -f "$top/zig.tar.xz"
+  fi
+  rpmbuild -bb --quiet --define "_topdir $top" --define "gh_version $ver" --define "dist .fc$FEDORA" \
+    --define "zig $zdir/zig" --define "zig_cache $top/zig-cache" rpm/ghostty-official.spec >&2 || return 1
+  ls -t "$top"/RPMS/x86_64/ghostty-official-"$ver"-*.rpm 2>/dev/null | head -1
+}
+
 system_phase() {
   rpm -qa --qf '%{NAME}\n' | sort > "$STATE_DIR/rpms-before.txt"
   local DNF="$SUDO dnf -y --setopt=install_weak_deps=False"
@@ -138,6 +177,7 @@ system_phase() {
   local lists=(00-core.txt 10-desktop.txt 20-input-fonts.txt 30-apps.txt 60-framework.txt 70-dev.txt 80-shells.txt 90-backup.txt 95-citadel.txt 96-theme.txt 97-warp.txt)
   use_greetd && lists+=(15-login.txt)
   has_ppd || lists+=(61-power.txt)
+  [[ $GHOSTTY == 0 ]] || lists+=(98-ghostty.txt)
   local main gaming codecs
   mapfile -t main   < <(cd packages && pkgs "${lists[@]}")
   mapfile -t gaming < <(cd packages && pkgs 40-gaming.txt)
@@ -165,6 +205,13 @@ system_phase() {
   local tg
   tg="$(build_telegram_rpm)" || die "Telegram RPM build failed (see above)"
   if [[ -n $tg ]]; then $DNF install "$tg"; else echo "telegram-desktop-official is current"; fi
+
+  if [[ $GHOSTTY != 0 ]]; then
+    say "Ghostty — built from the official release (Settings → fw13 → Terminal)"
+    local gt
+    gt="$(build_ghostty_rpm)" || die "Ghostty RPM build failed (see above)"
+    if [[ -n $gt ]]; then $DNF install "$gt"; else echo "ghostty-official is current"; fi
+  fi
 
   say "System files"
   $SUDO install -m 0755 system/usr/local/bin/* /usr/local/bin/
