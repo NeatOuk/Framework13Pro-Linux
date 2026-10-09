@@ -6,5 +6,11 @@ window-padding-y = 14
 window-decoration = none
 confirm-close-surface = false
 
+# Same as kitty.conf: splits instead of tabs, in the current folder (split-inherit-working-directory is on by default).
+# Ctrl+Shift+T / Enter split the current pane; Ctrl+Shift+L shows one pane full size (kitty's "stack") and back.
+keybind = ctrl+shift+t=new_split:auto
+keybind = ctrl+shift+enter=new_split:auto
+keybind = ctrl+shift+l=toggle_split_zoom
+
 # Colours: written by fw13.theme ("?" = no error while it doesn't exist yet)
 config-file = ?{{ .chezmoi.homeDir }}/.config/fw13/theme/ghostty
