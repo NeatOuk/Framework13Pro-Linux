@@ -30,7 +30,7 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
 from gi.repository import Gdk, GLib, Gtk, GtkLayerShell, Pango  # noqa: E402
 
-from fw13 import ui_theme  # noqa: E402
+from fw13 import jarvis as jcfg, ui_theme  # noqa: E402
 from fw13.hypr import hj  # noqa: E402
 from fw13.ui_theme import button, label  # noqa: E402
 
@@ -345,7 +345,7 @@ class Panel(Gtk.Window):
         if target == "claude":
             cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--include-partial-messages",
                    "--verbose", "--append-system-prompt", INLINE_NOTE, "--add-dir", "/",
-                   "--allowedTools", *READ_ONLY_TOOLS, "--disallowedTools", *SECRET_READS]
+                   "--allowedTools", *READ_ONLY_TOOLS, "--disallowedTools", *SECRET_READS, *jcfg.claude_args()]
             if follow_up and self.session:
                 cmd += ["--resume", self.session]
         elif follow_up:
@@ -592,7 +592,7 @@ class Panel(Gtk.Window):
     def continue_terminal(self):
         if self.last_target == "claude" and self.session:
             launch("kitty", "--class", "fw-jarvis", "--hold", "--directory", JDIR, "-e",
-                   "claude", "--resume", self.session, cwd=JDIR)
+                   "claude", *jcfg.claude_args(), "--resume", self.session, cwd=JDIR)
         elif self.last_target and self.last_target != "claude":
             launch("kitty", "--class", "fw-jarvis", "--hold", "--directory", JDIR, "-e",
                    "opencode", "--continue", "--model", self.last_target, cwd=JDIR)

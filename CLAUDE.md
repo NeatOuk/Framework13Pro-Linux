@@ -33,7 +33,7 @@ system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/l
 dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
   .chezmoi.toml.tmpl       one-time prompts (secrets) — never commit values
   dot_local/lib/fw13/       shared Python library → ~/.local/lib/fw13 (scripts sys.path.insert ~/.local/lib): hypr (Lua hyprctl helpers),
-                           displays, power, sound, net (nmcli; passwd-file, never argv), bt (org.bluez via Gio), hyprsettings (settings.lua: verify-config in a temp copy, then write + hl.config live), idle (owns hypridle.conf), system, store (~/.config/fw13/settings.json), ui_theme (flat CSS), ui_display, pages/*,
+                           displays, power, sound, net (nmcli; passwd-file, never argv), bt (org.bluez via Gio), hyprsettings (settings.lua: verify-config in a temp copy, then write + hl.config live), idle (owns hypridle.conf), system, store (~/.config/fw13/settings.json), ui_theme (flat CSS), ui_display, pages/* (incl. `jarvis`: Settings → Jarvis, store `jarvis_model`/`jarvis_effort` → `jarvis.claude_args()` = `--model`/`--effort` for the panel's `claude` runs, Continue in terminal and `fw-jarvis` via `python3 -m fw13.jarvis`),
                            theme (ensure_files also rewrites a generated file of ours that lacks a line in theme.REQUIRED; palette: matugen from the wallpaper or TOKYO_NIGHT → generated files in ~/.config/fw13/theme/ + live reload;
                            GTK: "fw13" theme in ~/.local/share/themes = adw-gtk3[-dark] + gtk3/gtk4.css, set via GSettings only inside Hyprland,
                            `python3 -m fw13.theme session-start|session-end` from fw-theme-session.service; Qt: qt6ct via uwsm/env-hyprland),
