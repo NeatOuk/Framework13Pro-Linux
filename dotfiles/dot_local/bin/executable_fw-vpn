@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Bar VPN toggle for a strongSwan (swanctl) connection: fw-vpn --bar | toggle
+# The connection is /etc/strongswan/swanctl/conf.d/<name>.conf (written by hand, root-only secrets) whose connection
+# and child are both called <name>. No such file → the module stays hidden. Toggling runs swanctl through pkexec,
+# so polkit asks for the password/fingerprint each time.
+set -euo pipefail
+
+SIGNAL=13   # waybar custom/vpn "signal"
+
+# shortcut: only the first connection file is used; add a picker if a second VPN ever appears
+conn() {
+  local f
+  for f in /etc/strongswan/swanctl/conf.d/*.conf; do
+    [[ -e $f ]] && { basename "$f" .conf; return 0; }
+  done
+  return 1
+}
+
+# charon installs the tunnel's routes in table 220, which is readable without root: none = down
+routes() { ip -4 route show table 220 2>/dev/null | awk '{ print $1 }' | paste -sd ' '; }
+
+case ${1:-} in
+  --bar)
+    name="$(conn)" || { echo '{"text": ""}'; exit 0; }
+    nets="$(routes)"
+    if [[ -n $nets ]]; then
+      printf '{"text": "", "class": "connected", "tooltip": "VPN %s: connected\\n%s"}\n' "$name" "$nets"
+    else
+      printf '{"text": "", "class": "off", "tooltip": "VPN %s: off (click to connect)"}\n' "$name"
+    fi
+    ;;
+  toggle)
+    name="$(conn)" || exit 0
+    if [[ -n $(routes) ]]; then
+      args=(--terminate --ike "$name") verb=disconnect
+    else
+      args=(--initiate --child "$name") verb=connect
+    fi
+    pkexec /usr/bin/swanctl "${args[@]}" >/dev/null 2>&1 \
+      || fw-notify "VPN $name" "Could not $verb (cancelled, or see: journalctl -u strongswan)"
+    pkill -RTMIN+"$SIGNAL" -x waybar || true
+    ;;
+  *) echo "usage: fw-vpn --bar | toggle" >&2; exit 2 ;;
+esac
