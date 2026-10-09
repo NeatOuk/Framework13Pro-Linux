@@ -89,7 +89,8 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 | Key | Action |
 |---|---|
 | SUPER+Return / Space | Terminal (kitty or Ghostty, Settings → fw13) / launcher (fuzzel) |
-| SUPER+B / E / C | Chromium / Thunar / VS Code |
+| SUPER+B / E / Shift+C | Chromium / Thunar / VS Code |
+| SUPER+C / X | Copy / cut in the focused window (Ctrl+Shift+C in terminals; no cut there) |
 | SUPER+A | Jarvis (AI assistant) |
 | SUPER+Shift+A / T / B | Claude Code / btop / Timeshift |
 | SUPER+Q / F / T / J / P | Close / fullscreen / float / change split / pseudo-tile |
