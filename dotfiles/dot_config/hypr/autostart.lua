@@ -11,11 +11,11 @@ hl.on("hyprland.start", function()
   hl.exec_cmd([[gsettings set org.blueman.general plugin-list "['!StatusIcon', '!StatusNotifierItem', '!ShowConnected']" && uwsm app -- blueman-applet]])
   hl.exec_cmd("uwsm app -- fcitx5 -d --replace")
   hl.exec_cmd("uwsm app -- wl-paste --watch cliphist store")
-  -- Per-screen workspace ranges + login layout (kitty on the laptop's 1, Chromium on the monitor's 1)
+  -- Per-screen workspace ranges + login layout (the terminal on the laptop's 1, Chromium on the monitor's 1)
   hl.exec_cmd("uwsm app -- fw-workspaces daemon")
   -- GNOME's apps hidden from the launcher in Hyprland only; Thunar / Chromium / GNOME viewers as defaults
   -- (~/.config/hyprland-mimeapps.list). Rerun at each login so package updates are picked up (fw13.defaultapps).
   hl.exec_cmd("env PYTHONPATH=$HOME/.local/lib python3 -m fw13.defaultapps")
-  -- First Hyprland login only (store key hwcheck_shown): hardware check notification, "Open" shows it in kitty
+  -- First Hyprland login only (store key hwcheck_shown): hardware check notification, "Open" shows it in the terminal
   hl.exec_cmd("uwsm app -- fw-hwcheck --first-login")
 end)

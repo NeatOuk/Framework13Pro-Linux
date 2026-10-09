@@ -1,6 +1,6 @@
 -- Window rules: hl.window_rule({ name, match = { class/title = regex }, <effect> = value })
 
--- Apps (kitty) may ask to start maximized, covering the tile instead of splitting; ignore that. SUPER+F still fullscreens.
+-- Apps (terminals) may ask to start maximized, covering the tile instead of splitting; ignore that. SUPER+F still fullscreens.
 hl.window_rule({ name = "suppress-maximize", match = { class = ".*" }, suppress_event = "maximize" })
 
 -- Games may tear (general.allow_tearing) for lower latency.
@@ -17,7 +17,7 @@ hl.window_rule({ name = "float-steam-dialogs", match = { class = "^(steam)$", ti
 -- Jarvis windows (Ask / Work on repo / crash Diagnose) float in the middle; plain Claude/OpenCode windows tile.
 hl.window_rule({
   name = "jarvis",
-  match = { class = "^(fw-jarvis)$" },
+  match = { class = "^(fw13\\.jarvis)$" },
   float = true,
   size = { "(monitor_w*0.6)", "(monitor_h*0.7)" },
   center = true,

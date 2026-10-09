@@ -626,10 +626,10 @@ class Panel(Gtk.Window):
     # ---- the terminal side --------------------------------------------------------------------------------------
     def continue_terminal(self):
         if self.last_target == "claude" and self.session:
-            launch("kitty", "--class", "fw-jarvis", "--hold", "--directory", JDIR, "-e",
+            launch("fw-term", "--class", "fw13.jarvis", "--hold", "--dir", JDIR, "-e",
                    "claude", *jcfg.claude_args(), "--resume", self.session, cwd=JDIR)
         elif self.last_target and self.last_target != "claude":
-            launch("kitty", "--class", "fw-jarvis", "--hold", "--directory", JDIR, "-e",
+            launch("fw-term", "--class", "fw13.jarvis", "--hold", "--dir", JDIR, "-e",
                    "opencode", "--continue", "--model", self.last_target, cwd=JDIR)
         self.quit()
 

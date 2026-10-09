@@ -12,7 +12,7 @@ pick="$(cliphist list | fuzzel --dmenu --prompt 'Clipboard › ' --width 60)" ||
 cliphist decode <<<"$pick" | wl-copy >/dev/null 2>&1  # wl-copy stays running to serve the clipboard
 
 [[ -n $addr ]] || exit 0  # empty workspace: just copied
-# Terminals by program, not window class (kitty windows may be fw-btop, fw-jarvis, …).
+# Terminals by program, not window class (terminal windows may be fw13.btop, fw13.jarvis, …).
 case "$(cat "/proc/$pid/comm" 2>/dev/null)" in
   kitty|foot|alacritty|ghostty|wezterm-gui|konsole|gnome-terminal-*|ptyxis*) mods="CTRL SHIFT" ;;
   *) mods="CTRL" ;;

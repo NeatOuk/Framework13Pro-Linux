@@ -242,13 +242,13 @@ class Fw13Page(Page):
         now = button("Back up now", self.backup_now)
         now.set_sensitive(not (b.get("running") or self.poll))
         tools = _buttons(button("Test connection", self.restic_test), init, now,
-                         button("View log", lambda: launch("kitty", "--hold", "-e", "journalctl", "--user",
+                         button("View log", lambda: launch("fw-term", "--hold", "-e", "journalctl", "--user",
                                                            "-u", setup.UNIT, "-n", "200", "--no-pager")))
         tools.set_halign(Gtk.Align.START)
         self.add_widget(tools)
         self.item("Restore", "A terminal with the repository loaded: list snapshots, browse them as folders "
                   "(restic mount) or restore a path into ~/restore",
-                  [button("Open terminal", lambda: launch("kitty", "-e", "bash", "-c", RESTORE_SH))])
+                  [button("Open terminal", lambda: launch("fw-term", "-e", "bash", "-c", RESTORE_SH))])
 
     def render_shell(self):
         shells, cur = self.st["shells"], self.st["shell"]
@@ -266,8 +266,8 @@ class Fw13Page(Page):
     def render_dotfiles(self):
         d = self.st["dots"]
         where = " @ ".join(x for x in (d["remote"], d["rev"]) if x) or d["source"] or "No chezmoi source found"
-        upd = button("Update dotfiles", lambda: launch("kitty", "--hold", "-e", "chezmoi", "update"))
-        rerun = button("Re-run user setup", lambda: launch("kitty", "--hold", "-e", setup.INSTALLER,
+        upd = button("Update dotfiles", lambda: launch("fw-term", "--hold", "-e", "chezmoi", "update"))
+        rerun = button("Re-run user setup", lambda: launch("fw-term", "--hold", "-e", setup.INSTALLER,
                                                            "--user-only")) if d["installer"] else None
         self.item(where, "Both apply the pushed repo, not local edits" + (" · local changes in the source"
                                                                           if d["dirty"] else ""),
@@ -280,7 +280,7 @@ class Fw13Page(Page):
         if n is None:
             self.row("Fingerprint", label("No reader found", "dim"))
         else:
-            enrol = button("Enrol", lambda: launch("kitty", "--hold", "-e", "fprintd-enroll"))
+            enrol = button("Enrol", lambda: launch("fw-term", "--hold", "-e", "fprintd-enroll"))
             self.row("Fingerprint", _buttons(label(f"{n} finger{'s' if n != 1 else ''}", "dim"), enrol))
         self.row("Timeshift", label(self.st["timeshift"] or "Not set up (sudo fw-timeshift-setup)", "dim",
                                     wrap=True, max_width_chars=40, xalign=1))

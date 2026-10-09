@@ -58,7 +58,7 @@
   "custom/display": { "format": "", "tooltip-format": "Display", "on-click": "FW_BAR=1 fw-display-panel", "on-scroll-up": "brightnessctl -q -e4 -n2 set 5%+ && fw-osd brightness", "on-scroll-down": "brightnessctl -q -e4 -n2 set 5%- && fw-osd brightness" },
   "custom/claude": { "exec": "fw-claude-limits --bar", "return-type": "json", "interval": 60, "on-click": "FW_BAR=1 fw-claude-limits" },
   "custom/opencode": { "exec": "fw-opencode --bar", "return-type": "json", "interval": 300, "signal": 9, "on-click": "FW_BAR=1 fw-opencode" },
-  "cpu": { "format": "", "tooltip": true, "on-click": "uwsm app -- kitty --class fw-btop -e btop" },
+  "cpu": { "format": "", "tooltip": true, "on-click": "uwsm app -- fw-term --class fw13.btop -e btop" },
   "battery": {
     "states": { "warning": 20, "critical": 10 },
     "format": "{icon}",

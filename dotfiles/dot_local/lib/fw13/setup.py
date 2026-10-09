@@ -624,7 +624,7 @@ def set_shell(path):
     except Exception as e:  # noqa: BLE001 — GLib.Error or no GI: decide below
         msg = getattr(e, "message", str(e))
         if "ServiceUnknown" in msg or "was not provided by any .service" in msg or "No such interface" in msg:
-            return None, ["kitty", "--hold", "-e", "sudo", "usermod", "--shell", path, user]
+            return None, ["fw-term", "--hold", "-e", "sudo", "usermod", "--shell", path, user]
         if "NotAuthorized" in msg or "PermissionDenied" in msg or "Dismissed" in msg or "cancel" in msg.lower():
             return False, "Not changed (not authorised)"
         return False, msg.split(": ", 1)[-1] if msg.startswith("GDBus.Error") else msg
