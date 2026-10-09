@@ -91,9 +91,19 @@ Declined by the user — do not re-propose unless asked: `mesa-va-drivers-freewo
 ./install.sh                     # full install (interactive)
 ./install.sh --ci                # what CI runs in a fedora container (root, non-interactive)
 ./install.sh --user-only         # re-apply dotfiles/mise/shell only
-HOME=$(mktemp -d) chezmoi init --source=$PWD --apply   # dry-run dotfiles into a throwaway home
-sh=(); for f in install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*; do head -1 "$f" | grep -q python3 || sh+=("$f"); done; shellcheck -S warning "${sh[@]}"   # bash by shebang (some bash scripts call python3); CI ast-parses the Python ones
+T=$(mktemp -d); HOME=$T XDG_CONFIG_HOME=$T/.config XDG_DATA_HOME=$T/.local/share XDG_STATE_HOME=$T/.local/state XDG_CACHE_HOME=$T/.cache \
+  chezmoi init --source=$PWD --apply --exclude=scripts   # dry-run dotfiles into a throwaway home (isolate every XDG dir)
+XDG_RUNTIME_DIR=$(mktemp -d) Hyprland --verify-config -c "$T/.config/hypr/hyprland.lua"   # check the rendered Lua config
+# lint, as CI does: split scripts by shebang, shellcheck the bash ones, ast-parse the Python ones
+sh=() py=()
+for f in install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*; do
+  case "$(head -1 "$f")" in *python3*) py+=("$f") ;; *) sh+=("$f") ;; esac
+done
+shellcheck -S warning "${sh[@]}"
+python3 -c 'import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' "${py[@]}" $(find dotfiles/dot_local/lib -name '*.py')
 ```
+
+There is no unit-test suite: verification is lint + dry-run + CI install (`.github/workflows/test.yml`) + the hardware checklist in `docs/FIRST-INSTALL.md`. Local dotfile edits are not what `chezmoi update` applies (it pulls the pushed repo), so push before testing on the machine. `CONTRIBUTING.md` has the commit conventions (`feat(area):`, `fix(area):`, `chore:`, `docs:`; update README and this file in the same change) and the roadmap.
 
 Package-resolution failures are intended to fail loudly — fix the name (and ask the user if it means a source change); never add `--skip-unavailable`.
 
