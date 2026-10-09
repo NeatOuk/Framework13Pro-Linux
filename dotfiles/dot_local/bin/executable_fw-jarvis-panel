@@ -39,6 +39,10 @@ PIDFILE = os.path.join(RUNTIME, "fw-jarvis-panel.pid")
 JDIR = os.path.expanduser("~/jarvis")
 os.makedirs(JDIR, exist_ok=True)  # the working folder of every Jarvis agent run; chezmoi adds its AGENTS.md/CLAUDE.md
 PANEL_W = 680
+TOP_MARGIN = 60    # below the bar's exclusive zone
+BOTTOM_GAP = 20    # space left under the panel
+MIN_ANSWER = 80    # the answer keeps at least this much, even when a card fills the rest
+OUTPUT_MAX = 160   # a Run card's command output scrolls past this
 
 # What the inline agent may do without asking (one-shot mode can't ask): read anywhere (--add-dir /) except the
 # secret files below, search, and read-only commands, including a few read-only ones as root through passwordless
@@ -123,12 +127,18 @@ def close_pidfile(name):
         pass
 
 
-def max_height():
+def screen_room():
+    """(width, height) the panel may use on the focused screen, in logical px: rotation, scale, the bar's reserved
+    space and the panel's own margins taken off."""
     try:
         m = next(m for m in hj("monitors") if m["focused"])
-        return int(m["height"] / m["scale"]) - 120
-    except (ValueError, KeyError, StopIteration):
-        return 600
+        w, h = m["width"] / m["scale"], m["height"] / m["scale"]
+        if m.get("transform", 0) % 2:  # 90°/270° (and their flipped forms): width and height swap
+            w, h = h, w
+        left, top, right, bottom = (m.get("reserved") or [0, 0, 0, 0])[:4]
+        return int(w - left - right - 32), int(h - top - bottom - TOP_MARGIN - BOTTOM_GAP)
+    except (ValueError, KeyError, TypeError, StopIteration):
+        return PANEL_W, 600
 
 
 def agents():
@@ -224,14 +234,17 @@ class Panel(Gtk.Window):
     def __init__(self):
         super().__init__()
         self.get_style_context().add_class("panel")
-        self.set_size_request(PANEL_W, -1)
+        room_w, self.max_h = screen_room()
+        self.w = max(min(PANEL_W, room_w), 320)
+        self.fit_queued = False
+        self.set_size_request(self.w, -1)
         GtkLayerShell.init_for_window(self)
         GtkLayerShell.set_namespace(self, "fw-jarvis-panel")
         GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
         # on-demand like the bar menus: the Ask box gets the keyboard at once, other windows can still be clicked
         GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
         GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, True)
-        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, 60)
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.TOP, TOP_MARGIN)
         self.connect("key-press-event", self.on_key)
 
         self.proc = None
@@ -268,7 +281,6 @@ class Panel(Gtk.Window):
         self.scroll.add(self.view)
         self.scroll.set_no_show_all(True)
         box.pack_start(self.scroll, True, True, 0)
-        self.max_h = max_height()
 
         self.card_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.card_box.set_no_show_all(True)
@@ -421,11 +433,27 @@ class Panel(Gtk.Window):
         self.view.set_markup(markdown_to_pango(md) if md else "")
         self.scroll.set_visible(bool(md))
         self.view.show()
-        nat = self.view.get_preferred_height_for_width(PANEL_W - 40)[1]
-        self.scroll.set_min_content_height(min(max(nat, 1), self.max_h - 220))
-        self.resize(PANEL_W, 1)
+        self.fit()
         adj = self.scroll.get_vadjustment()  # follow the text while it streams
         GLib.idle_add(lambda: adj.set_value(adj.get_upper()) and False)
+
+    def fit(self):
+        """Grow with the answer, but never past the screen: once per idle, however many changes came in."""
+        if not self.fit_queued:
+            self.fit_queued = True
+            GLib.idle_add(self._fit)
+
+    def _fit(self):
+        self.fit_queued = False
+        if self.scroll.get_visible():
+            # Everything but the answer (title, box, card, buttons, status) is measured with the answer at 1 px;
+            # the answer gets what is left of the screen, at least MIN_ANSWER.
+            self.scroll.set_min_content_height(1)
+            other = self.get_preferred_height_for_width(self.w)[1] - 1
+            nat = self.view.get_preferred_height_for_width(self.w - 40)[1]
+            self.scroll.set_min_content_height(max(1, min(nat, max(self.max_h - other, MIN_ANSWER))))
+        self.resize(self.w, 1)  # shrink back too (a layer surface keeps its size otherwise)
+        return False
 
     def finished(self, proc, err):
         if proc is not self.proc:
@@ -470,7 +498,7 @@ class Panel(Gtk.Window):
             for c in self.chips.get_children():
                 c.show_all()
             self.chips.show()  # no_show_all: show_all() would skip it
-            self.resize(PANEL_W, 1)
+        self.fit()
 
     # ---- action cards -------------------------------------------------------------------------------------------
     def clear_card(self):
@@ -509,15 +537,20 @@ class Panel(Gtk.Window):
         row.pack_start(self.run_btn, False, False, 0)
         row.pack_start(self.skip_btn, False, False, 0)
         card.pack_start(row, False, False, 0)
-        self.card_out = label("", "dim", selectable=True, xalign=0)
+        self.card_out = label("", "dim", selectable=True, xalign=0, valign=Gtk.Align.START)
         self.card_out.set_line_wrap(True)
         self.card_out.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.card_out.set_no_show_all(True)
-        card.pack_start(self.card_out, False, False, 0)
+        self.out_scroll = Gtk.ScrolledWindow()  # long output scrolls inside the card instead of growing it
+        self.out_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.out_scroll.set_propagate_natural_height(True)
+        self.out_scroll.set_max_content_height(OUTPUT_MAX)
+        self.out_scroll.add(self.card_out)
+        self.out_scroll.set_no_show_all(True)
+        card.pack_start(self.out_scroll, False, False, 0)
         self.card_box.pack_start(card, False, False, 0)
-        card.show_all()        # card_out stays hidden (no_show_all) until there is output
+        card.show_all()        # the output stays hidden (no_show_all) until there is some
         self.card_box.show()   # show_all() does nothing on a no_show_all widget, so show it directly
-        self.resize(PANEL_W, 1)
+        self.fit()
 
     def run_action(self, a):
         self.run_btn.set_sensitive(False)
@@ -544,7 +577,8 @@ class Panel(Gtk.Window):
             shown = out if len(out) <= 3000 else out[:1500] + "\n…\n" + out[-1500:]
             self.card_out.set_markup("<tt>" + GLib.markup_escape_text(
                 f"exit {rc if rc is not None else '—'}" + (f"\n{shown}" if shown else "")) + "</tt>")
-            self.card_out.show()
+            self.out_scroll.show_all()
+            self.fit()
             self.answer += f"\n\n**Ran:** `{a['command']}` · exit {rc if rc is not None else 'none'}"
             self.start(f"I pressed Run. Command: {a['command']}\nExit code: {rc}\nOutput:\n```\n{shown}\n```\n"
                        "Check whether that worked. If more is needed, propose the next single step as an action "
@@ -572,6 +606,7 @@ class Panel(Gtk.Window):
             ctx.remove_class(c)
         ctx.add_class(cls)
         self.status.set_text(text)
+        self.fit()  # a wrapped status line takes room too
         return False
 
     def new_question(self):
