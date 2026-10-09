@@ -101,6 +101,7 @@ for f in install.sh system/usr/local/bin/* dotfiles/dot_local/bin/executable_*; 
   case "$(head -1 "$f")" in *python3*) py+=("$f") ;; *) sh+=("$f") ;; esac
 done
 shellcheck -S warning "${sh[@]}"
+shellcheck -S warning -s bash dotfiles/dot_config/uwsm/env-hyprland   # sourced by uwsm, no shebang
 python3 -c 'import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]' "${py[@]}" $(find dotfiles/dot_local/lib -name '*.py')
 ```
 
@@ -132,7 +133,7 @@ Package-resolution failures are intended to fail loudly — fix the name (and as
 ## Verification before declaring done
 
 - `bash -n` on every script; JSON-parse `waybar/config.jsonc` (strip `//` comments) and TOML-parse mise/starship — the python snippet in the CI `lint` job does both.
-- `Hyprland --verify-config` on the rendered `hyprland.lua`; duplicate-keybind check via `hyprctl -j binds` (72 binds today).
+- `Hyprland --verify-config` on the rendered `hyprland.lua`; duplicate-keybind check via `hyprctl -j binds` (76 binds today).
 - chezmoi dry-run into a temp HOME, both with secrets blank and filled.
 - CI green on fedora:44; read the install report in the job summary (added count, size, top 25, Hypr provenance).
 - Hardware-only checks (cannot be done in CI/VM): MT7925 Wi-Fi/BT, VA-API (`vainfo` via distrobox), fingerprint, suspend/resume, tuned-ppd profiles, ambient light sensor, Steam + gamescope.
