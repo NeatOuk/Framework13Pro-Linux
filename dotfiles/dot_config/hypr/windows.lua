@@ -3,6 +3,10 @@
 -- Apps (terminals) may ask to start maximized, covering the tile instead of splitting; ignore that. SUPER+F still fullscreens.
 hl.window_rule({ name = "suppress-maximize", match = { class = ".*" }, suppress_event = "maximize" })
 
+-- Telegram asks for focus on every new message (misc.focus_on_activate is on, for links and Settings): it only
+-- gets marked urgent. Class may carry a ._<hash> suffix (Telegram's own launcher entry, see install.sh).
+hl.window_rule({ name = "telegram-no-focus-steal", match = { class = "^(org\\.telegram\\.desktop.*)$" }, suppress_event = "activatefocus" })
+
 -- Games may tear (general.allow_tearing) for lower latency.
 hl.window_rule({ name = "tearing-steam-games", match = { class = "^(steam_app_.*)$" }, immediate = true })
 hl.window_rule({ name = "tearing-gamescope",   match = { class = "^(gamescope)$" },     immediate = true })
