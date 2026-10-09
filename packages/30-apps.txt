@@ -9,3 +9,7 @@ qalculate
 RemoteDesktopManager
 # Fedora official: Secret Service for RDM's saved passwords (libsecret); Workstation has it, Minimal does not
 gnome-keyring
+# Fedora official (user decision): IPsec VPN (FortiGate dial-up: IKE + XAuth user/password + PSK) in
+# nm-connection-editor and the tray; the -gnome part is the editor form
+NetworkManager-libreswan
+NetworkManager-libreswan-gnome
