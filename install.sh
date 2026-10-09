@@ -137,9 +137,10 @@ build_ghostty_rpm() {
   [[ $have == "$ver" ]] && return 0
   mkdir -p "$top"/{SOURCES,RPMS,BUILD,SRPMS,SPECS,zig-cache}
   tarball="$top/SOURCES/ghostty-$ver.tar.gz"
-  if ! echo "$GHOSTTY_SHA256  $tarball" | sha256sum -c --quiet 2>/dev/null; then
+  # Only the RPM path may reach stdout (the caller captures it): checksum output goes to stderr or nowhere.
+  if ! echo "$GHOSTTY_SHA256  $tarball" | sha256sum -c --quiet >/dev/null 2>&1; then
     curl -fsSL -o "$tarball" "https://release.files.ghostty.org/$ver/ghostty-$ver.tar.gz" || return 1
-    echo "$GHOSTTY_SHA256  $tarball" | sha256sum -c --quiet \
+    echo "$GHOSTTY_SHA256  $tarball" | sha256sum -c --quiet >&2 \
       || { warn "ghostty-$ver.tar.gz doesn't match GHOSTTY_SHA256" >&2; rm -f "$tarball"; return 1; }
   fi
   zv="$(tar -xzOf "$tarball" "ghostty-$ver/build.zig.zon" | sed -n 's/.*minimum_zig_version = "\([0-9.]*\)".*/\1/p')"
@@ -152,7 +153,7 @@ import json, sys
 d = json.load(sys.stdin)[sys.argv[1]][sys.argv[2]]
 print(d["tarball"]); print(d["shasum"])' "$zv" "$arch") || { warn "Zig $zv isn't in ziglang.org's index" >&2; return 1; }
     curl -fsSL -o "$top/zig.tar.xz" "$url" || return 1
-    echo "$sum  $top/zig.tar.xz" | sha256sum -c --quiet || { warn "Zig $zv download doesn't match its checksum" >&2; return 1; }
+    echo "$sum  $top/zig.tar.xz" | sha256sum -c --quiet >&2 || { warn "Zig $zv download doesn't match its checksum" >&2; return 1; }
     mkdir -p "$zdir" && tar -xJf "$top/zig.tar.xz" -C "$zdir" --strip-components=1 && rm -f "$top/zig.tar.xz"
   fi
   rpmbuild -bb --quiet --define "_topdir $top" --define "gh_version $ver" --define "dist .fc$FEDORA" \
