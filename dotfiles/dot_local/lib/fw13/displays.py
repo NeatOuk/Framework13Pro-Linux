@@ -12,7 +12,9 @@ import subprocess
 from .hypr import hj, lua, sh
 
 SAVED = os.path.expanduser("~/.config/hypr/displays.lua")
-SCALES = [1, 1.2, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 1.75, 1.8, 2, 2.4, 2.5, 3]
+# Only scales that divide the monitor's size evenly are offered (see Mon.scales). On the Framework 13 panel
+# (2880x1920) the even ones near 1.7 / 1.8 / 1.9 are 12/7, 16/9 and 1.875 / 1.92.
+SCALES = [1, 1.2, 1.25, 4 / 3, 1.5, 1.6, 5 / 3, 12 / 7, 1.75, 16 / 9, 1.8, 1.875, 1.92, 2, 2.4, 2.5, 3]
 
 
 class Mon:
