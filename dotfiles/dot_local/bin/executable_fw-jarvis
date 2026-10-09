@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Jarvis: ask an AI agent — Claude Code, or OpenCode on any Ollama server from the OpenCode panel — about
-# this computer or the fw13-hypr repo. Tasks open in a floating kitty window (class fw-jarvis).
+# this computer or the fw13-hypr repo. Tasks open in a floating terminal window (class fw13.jarvis; kitty or Ghostty via fw-term).
 #   fw-jarvis                  the Jarvis panel (SUPER+A): ask and the answer appears inline (fw-jarvis-panel)
 #   fw-jarvis menu             the older fuzzel menu
 #   fw-jarvis crash | repo <agent> <task> | open claude|opencode   the panel's buttons
@@ -62,9 +62,9 @@ launch() {
   else cmd=(opencode --model "$target" ${prompt:+--prompt "$prompt"}); fi
   # Tasks keep their window when the agent exits (--hold), so an error stays readable instead of a window
   # that flashes and closes.
-  [[ -n $prompt ]] && class=(--class fw-jarvis --hold)
+  [[ -n $prompt ]] && class=(--class fw13.jarvis --hold)
   log "launch in $dir: ${cmd[0]} (${#prompt} chars of prompt)"
-  uwsm app -- kitty "${class[@]}" --directory "$dir" -e "${cmd[@]}" >>"$LOG" 2>&1 &
+  uwsm app -- fw-term "${class[@]}" --dir "$dir" -e "${cmd[@]}" >>"$LOG" 2>&1 &
 }
 
 diagnose() {

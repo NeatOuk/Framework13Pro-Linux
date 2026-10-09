@@ -1,5 +1,5 @@
 -- Simple, conventional keymap.  hl.bind("MODS + key", dispatcher, { options })
-local term    = "uwsm app -- kitty"
+local term    = "uwsm app -- fw-term"  -- kitty or Ghostty, Settings → fw13
 local browser = "uwsm app -- chromium-browser"
 local files   = "uwsm app -- thunar"
 local editor  = "uwsm app -- code"
@@ -15,11 +15,11 @@ hl.bind("SUPER + E",         exec(files))
 hl.bind("SUPER + SHIFT + C", exec(editor))
 hl.bind("SUPER + C",         exec("fw-clip-key copy"))
 hl.bind("SUPER + X",         exec("fw-clip-key cut"))
-hl.bind("SUPER + SHIFT + A", exec("uwsm app -- kitty -e claude"))
+hl.bind("SUPER + SHIFT + A", exec("uwsm app -- fw-term -e claude"))
 hl.bind("SUPER + A",         exec("fw-jarvis"))
 hl.bind("SUPER + I",         exec("fw-settings"))
 hl.bind("SUPER + W",         exec("fw-wallpaper"))
-hl.bind("SUPER + SHIFT + T", exec("uwsm app -- kitty --class fw-btop -e btop"))
+hl.bind("SUPER + SHIFT + T", exec("uwsm app -- fw-term --class fw13.btop -e btop"))
 
 -- Windows
 hl.bind("SUPER + Q",         hl.dsp.window.close())

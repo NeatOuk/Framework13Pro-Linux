@@ -1,0 +1,6 @@
+# Ghostty build dependencies (Fedora), from Ghostty's build docs; Zig itself comes from ziglang.org (Fedora 44's 0.16
+# is not the 0.15.2 Ghostty 1.3 needs). Only installed when GHOSTTY isn't 0. rpm-build comes with 95-citadel.txt.
+gtk4-devel
+gtk4-layer-shell-devel
+libadwaita-devel
+gettext

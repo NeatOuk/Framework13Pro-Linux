@@ -122,7 +122,7 @@ def panel():
     r = subprocess.run(["fuzzel", "--dmenu", *pos, "--prompt", "Claude › ", "--lines", str(len(rows)),
                         "--width", "44"], input="\n".join(rows), capture_output=True, text=True)
     if r.returncode == 0 and r.stdout.strip().endswith("Open Claude Code"):
-        subprocess.Popen(["uwsm", "app", "--", "kitty", "-e", "claude"], cwd=os.path.expanduser("~"),
+        subprocess.Popen(["uwsm", "app", "--", "fw-term", "-e", "claude"], cwd=os.path.expanduser("~"),
                          start_new_session=True)
 
 

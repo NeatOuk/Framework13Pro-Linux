@@ -11,7 +11,7 @@ notification. Explain in plain language; the owner decides what changes.
 - Dotfiles are managed by **chezmoi** from the repo's `dotfiles/` dir. Editing `~/.config/...` directly gets
   overwritten on the next `chezmoi update`; machine-only Hyprland tweaks go in `~/.config/hypr/local.lua`. Hyprland's config is **Lua** (`hyprland.lua`;
   `hyprctl dispatch` takes Lua, `hyprctl eval` replaces `keyword`).
-- Bar: waybar. Menus: fuzzel. Notifications: mako (`fw-notify "title" "body"`). Terminal: kitty.
+- Bar: waybar. Menus: fuzzel. Notifications: mako (`fw-notify "title" "body"`). Terminal: kitty or Ghostty (the user picks in Settings → fw13; launch with `fw-term [--hold] [-e cmd…]`).
 - Helpers in `~/.local/bin/fw-*`: control-center, power-panel, display-panel, opencode (Ollama servers),
   claude-limits, workspaces (per-screen workspaces), crash-watch, jarvis, capture, record, nightlight, osd,
   notifications (bell/history/do-not-disturb), calc, emoji, autobrightness, hwcheck, health.

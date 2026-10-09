@@ -314,7 +314,7 @@ class SystemPage(Page):
             if updates:
                 upd = Gtk.Button(label="Update…")
                 upd.get_style_context().add_class("primary")
-                upd.connect("clicked", lambda _b: launch("kitty", "--hold", "-e", "fwupdmgr", "update"))
+                upd.connect("clicked", lambda _b: launch("fw-term", "--hold", "-e", "fwupdmgr", "update"))
                 buttons.pack_start(upd, False, False, 0)
         self.fw_box.pack_start(buttons, False, False, 0)
         self.fw_box.show_all()

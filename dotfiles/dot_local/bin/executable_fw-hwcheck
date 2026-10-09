@@ -2,10 +2,10 @@
 """Hardware check for the Framework Laptop 13 (AMD): CPU, GPU, Wi-Fi, Bluetooth, battery, firmware, fingerprint,
 light sensor, suspend and power profiles, plus the things only a person can try (fw13.health, read-only).
 
-  fw-hwcheck                 the check as text (a terminal: kitty --hold fw-hwcheck)
+  fw-hwcheck                 the check as text (a terminal: fw-term --hold -e fw-hwcheck)
   fw-hwcheck --json          the same as JSON: [{id, title, status, summary, fix}]
   fw-hwcheck --first-login   once per account (store key hwcheck_shown), from hypr/autostart.lua: a notification
-                             with the counts; "Open" shows the check in kitty
+                             with the counts; "Open" shows the check in the terminal
 Not a Framework 13: every hardware check is SKIP, with what was found.
 """
 import json
@@ -41,7 +41,7 @@ def first_login():
         return 0
     store.set(KEY, True)
     if notify.wait(nid, limit=120) in ("default", "open"):
-        notify.launch(["kitty", "--hold", "fw-hwcheck"])
+        notify.launch(["fw-term", "--hold", "-e", "fw-hwcheck"])
     return 0
 
 

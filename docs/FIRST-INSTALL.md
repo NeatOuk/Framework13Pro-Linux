@@ -42,7 +42,7 @@ A **text login screen** (tuigreet) replaces GNOME's: type your password, Hyprlan
 ## 3. First Hyprland login
 
 - **Look:** thin bar with the Framework gear on the left, Tokyo Night colours (or colours from your wallpaper).
-- **Windows:** kitty on workspace 1, Chromium on workspace 2 (or on the external monitor's workspace 1).
+- **Windows:** the terminal (kitty; Ghostty if picked in Settings → fw13) on workspace 1, Chromium on workspace 2 (or on the external monitor's workspace 1).
 - **Hardware check:** a "Hardware check" notification; **Open** shows the Framework checks (CPU driver, GPU, Wi-Fi, Bluetooth, battery and charge limit, firmware, fingerprint, light sensor, suspend). WARN can mean the expected value wasn't verifiable before real hardware existed: report those.
 - **Citadel** asks about each app's first outgoing connection (Chromium, `warp-svc`, Steam…). Answer Always or Block; enforcement is on, so unanswered connections stay blocked.
 - **Health:** about 15 minutes after login, `fw-health` runs. One notification with **Diagnose** if something needs attention; silent otherwise.

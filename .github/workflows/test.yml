@@ -57,7 +57,7 @@ jobs:
         run: ./install.sh --ci 2>&1 | tee install.log
       - name: Verify key binaries and dotfiles
         run: |
-          for b in Hyprland hyprlock hypridle waybar fuzzel kitty uwsm chromium-browser code steam timeshift restic mise citadel citadel-daemon citadel-app; do
+          for b in Hyprland hyprlock hypridle waybar fuzzel kitty ghostty uwsm chromium-browser code steam timeshift restic mise citadel citadel-daemon citadel-app; do
             if command -v "$b" >/dev/null; then echo "ok  $b"; else echo "MISSING $b"; exit 1; fi
           done
           rpm -q citadel citadel-helper   # built from the owner's repos by install.sh
@@ -80,27 +80,3 @@ jobs:
         with:
           name: install-log-f${{ matrix.fedora }}
           path: install.log
-
-  # ponytail: experimental — the runner has no GPU, so load vkms (a virtual KMS device) on the host
-  # and run install + screenshot in a privileged Fedora container that can see /dev/dri.
-  screenshot:
-    needs: install
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - name: Load vkms
-        run: |
-          sudo modprobe vkms || { sudo apt-get update -q && sudo apt-get install -yq "linux-modules-extra-$(uname -r)" && sudo modprobe vkms; }
-          ls -l /dev/dri
-      - name: Install and screenshot in Fedora 44
-        run: |
-          docker run --rm --privileged -v /dev/dri:/dev/dri -v "$PWD:/src" -w /src -e HOME=/root \
-            registry.fedoraproject.org/fedora:44 bash .github/ci-screenshot.sh
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: screenshot
-          path: shot/
-          if-no-files-found: ignore

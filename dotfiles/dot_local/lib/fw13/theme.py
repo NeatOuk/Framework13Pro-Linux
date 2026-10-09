@@ -1,6 +1,6 @@
 """Desktop colours: Tokyo Night, or a palette generated from the wallpaper with matugen.
 
-The base configs (hypr theme.lua, hyprlock.conf, waybar style.css, fuzzel.ini, mako, kitty.conf) hold no colours;
+The base configs (hypr theme.lua, hyprlock.conf, waybar style.css, fuzzel.ini, mako, kitty.conf, ghostty) hold no colours;
 they include the files this module writes into ~/.config/fw13/theme/. chezmoi seeds those once (create_) with
 render(TOKYO_NIGHT), so a fresh install looks the same as before.
 
@@ -426,6 +426,13 @@ def render(p):
              f"cursor {p['fg_bright']}"]
     for i in range(8):
         kitty += [f"color{i:<2} {p['ansi'][i]}", f"color{i + 8:<2} {p['ansi'][i + 8]}"]
+    ghostty = [f"# {HEAD}",
+               f"background = {p['bg']}",
+               f"foreground = {p['fg']}",
+               f"selection-background = {p['surface2']}",
+               f"selection-foreground = {p['fg_bright']}",
+               f"cursor-color = {p['fg_bright']}"]
+    ghostty += [f"palette = {i}={p['ansi'][i]}" for i in range(16)]
     hyprlock = (f"# {HEAD}\n"
                 f"$fw_base = rgba({_a(p['bg'])})\n"
                 f"$fw_inner = rgba({_a(p['bg'], 'cc')})\n"
@@ -435,7 +442,7 @@ def render(p):
                 f"$fw_fail = rgba({_a(p['bad'])})\n"
                 f"$fw_clock = rgba({_a(p['fg'])})\n")
     return {"hypr.lua": hypr, "waybar.css": waybar, "fuzzel.ini": fuzzel, "mako": mako,
-            "kitty.conf": "\n".join(kitty) + "\n", "hyprlock.conf": hyprlock,
+            "kitty.conf": "\n".join(kitty) + "\n", "ghostty": "\n".join(ghostty) + "\n", "hyprlock.conf": hyprlock,
             "gtk3.css": _gtk_css(p, variables=False), "gtk4.css": _gtk_css(p, variables=True),
             "qt6ct-colors.conf": _qt_scheme(p), "fcitx5-theme.conf": _fcitx_theme(p),
             "framework-logo.svg": _framework_logo(p, 18), "framework-logo@2x.svg": _framework_logo(p, 36)}
@@ -1371,6 +1378,7 @@ def reload(p=None):
     if shutil.which("makoctl"):
         _quiet("makoctl", "reload")
     _quiet("pkill", "-SIGUSR1", "-x", "kitty")  # every kitty re-reads kitty.conf incl. includes
+    _quiet("pkill", "-SIGUSR2", "-x", "ghostty")  # Ghostty (1.2+) reloads its config incl. config-file
     if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         v = {k: f'"{c}"' for k, c in _hypr_values(p).items()}
         try:

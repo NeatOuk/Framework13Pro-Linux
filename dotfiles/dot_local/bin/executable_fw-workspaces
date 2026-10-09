@@ -7,7 +7,7 @@ monitors (sorted by connector name) 11–19, 21–29, … Each bar shows its own
   fw-workspaces go N     SUPER+N:       workspace N of the focused screen
   fw-workspaces move N   SUPER+Shift+N: move the active window there
   fw-workspaces daemon   exec-once: binds the ranges to their screens, opens the login layout
-                         (kitty on the laptop's 1, Chromium on the monitor's 1), and re-binds on hotplug —
+                         (the terminal on the laptop's 1, Chromium on the monitor's 1), and re-binds on hotplug —
                          an unplugged monitor's workspaces move to the laptop and go back when it returns.
   fw-workspaces layout   just the login layout (testing)
   fw-workspaces dot N    waybar: JSON for workspace N's dot on this bar's screen (WAYBAR_OUTPUT_NAME)
@@ -23,6 +23,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import terminal  # noqa: E402
 from fw13.hypr import dispatch, hj, hypr, lua, q  # noqa: E402  (Lua-mode hyprctl helpers, shared)
 
 PERSISTENT = 5  # circles shown per screen
@@ -144,15 +145,17 @@ def setup(previous=None):
 
 # --- login layout -------------------------------------------------------------------------------
 def layout():
-    """kitty → laptop's workspace 1, Chromium → the monitor's workspace 1 (laptop's 2 without one)."""
+    """The terminal (kitty or Ghostty) → laptop's workspace 1, Chromium → the monitor's workspace 1 (laptop's 2 without
+    one)."""
     base_of = bases(hj("monitors"))
     names = list(base_of)
     term_ws = base_of[names[0]] + 1
     web_ws = base_of[names[1]] + 1 if len(names) > 1 else term_ws + 1
     before = {c["address"] for c in hj("clients")}
-    apps = {"kitty": ("kitty", term_ws), "chromium": ("chromium-browser", web_ws)}
+    term = terminal.current()  # its window class contains the name: kitty, com.mitchellh.ghostty
+    apps = {term: (terminal.argv(), term_ws), "chromium": (["chromium-browser"], web_ws)}
     for _, (cmd, _) in apps.items():
-        subprocess.Popen(["uwsm", "app", "--", cmd], start_new_session=True,
+        subprocess.Popen(["uwsm", "app", "--", *cmd], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Move each new window by address once it maps (no PID matching through uwsm/systemd).
     waiting = dict(apps)

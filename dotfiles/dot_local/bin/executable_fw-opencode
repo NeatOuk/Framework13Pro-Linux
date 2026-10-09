@@ -179,7 +179,7 @@ def panel(pos):
     elif kind == "remove":
         remove_server(st, lst, pos)
     elif kind == "open":
-        subprocess.Popen(["uwsm", "app", "--", "kitty", "-e", "opencode"],  # tiles like any terminal
+        subprocess.Popen(["uwsm", "app", "--", "fw-term", "-e", "opencode"],  # tiles like any terminal
                          cwd=os.path.expanduser("~"), start_new_session=True)
 
 
