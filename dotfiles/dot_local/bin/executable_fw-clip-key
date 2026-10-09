@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Copy / cut the selection of the focused window (SUPER+C, SUPER+X): sends the app's own shortcut with Hyprland's
+# send_shortcut dispatcher, like fw-clipboard does for paste. Terminals copy with Ctrl+Shift+C; cut does nothing
+# there (Ctrl+X is a real key for the shell). FW_CLIP_WINDOW=<address without 0x> targets another window (tests).
+set -euo pipefail
+
+action="${1:-}"
+case "$action" in
+  copy) key=c ;;
+  cut)  key=x ;;
+  *) echo "usage: fw-clip-key copy|cut" >&2; exit 2 ;;
+esac
+
+if [[ -n ${FW_CLIP_WINDOW:-} ]]; then
+  addr="$FW_CLIP_WINDOW"
+  info="$(hyprctl clients | awk -v w="Window 0x$addr " 'index($0, w) == 1 { f = 1 } f { print } f && /^$/ { exit }')"
+else
+  info="$(hyprctl activewindow)"
+  addr="$(awk '/^Window / { print $2; exit }' <<<"$info")"
+fi
+pid="$(awk -F': ' '/^\tpid:/ { print $2; exit }' <<<"$info")"
+[[ -n $addr ]] || exit 0  # empty workspace
+
+case "$(cat "/proc/$pid/comm" 2>/dev/null)" in
+  kitty|foot|alacritty|ghostty|wezterm-gui|konsole|gnome-terminal-*|ptyxis*)
+    [[ $action == cut ]] && exit 0
+    mods="CTRL SHIFT" ;;
+  *) mods="CTRL" ;;
+esac
+# Lua dispatcher (Hyprland Lua config). key must be lowercase.
+hyprctl dispatch "hl.dsp.send_shortcut({ mods = '$mods', key = '$key', window = 'address:0x$addr' })" >/dev/null
