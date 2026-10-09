@@ -108,12 +108,13 @@ build_citadel_rpm() {
 # The tarball's version comes from telegram.org's redirect; launcher entry, D-Bus service and icons come from
 # Telegram's own repo at the same tag. Spec: rpm/telegram-desktop-official.spec.
 build_telegram_rpm() {
-  local top="$STATE_DIR/telegram" url ver have f
+  local top="$STATE_DIR/telegram" url ver have rel f
   url="$(curl -fsIL -o /dev/null -w '%{url_effective}' https://telegram.org/dl/desktop/linux)" || return 1
   ver="${url##*-x64-}"; ver="${ver%.tar.xz}"
   [[ $ver =~ ^[0-9]+(\.[0-9]+)+$ ]] || { warn "unexpected Telegram download URL: $url" >&2; return 1; }
-  have="$(rpm -q --qf '%{VERSION}' telegram-desktop-official 2>/dev/null || true)"
-  [[ $have == "$ver" ]] && return 0
+  rel="$(sed -n 's/^Release:[[:space:]]*\([0-9]*\).*/\1/p' rpm/telegram-desktop-official.spec)"   # a spec fix rebuilds too
+  have="$(rpm -q --qf '%{VERSION}-%{RELEASE}' telegram-desktop-official 2>/dev/null || true)"
+  [[ ${have%%.fc*} == "$ver-$rel" ]] && return 0
   mkdir -p "$top"/{SOURCES,RPMS,BUILD,SRPMS,SPECS}
   curl -fsSL -o "$top/SOURCES/td-setup-linux-x64-$ver.tar.xz" "$url" || return 1
   local gh="https://raw.githubusercontent.com/telegramdesktop/tdesktop/v$ver"
@@ -388,6 +389,9 @@ user_phase() {
     for _ in {1..20}; do [[ -S "$XDG_RUNTIME_DIR/citadel/daemon.sock" ]] && break; sleep 0.5; done
     citadel enforce on || warn "couldn't turn Citadel enforcement on — open Citadel → Settings → Enforcement"
   fi
+
+  # Telegram wrote its own launcher entry while its updater was on (spec release 1); the packaged one replaces it.
+  rm -f "$HOME"/.local/share/applications/org.telegram.desktop._*.desktop
 
   say "Flathub remote + LocalSend (the only approved Flathub app)"
   flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo

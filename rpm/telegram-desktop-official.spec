@@ -10,7 +10,7 @@
 
 Name:           telegram-desktop-official
 Version:        %{tg_version}
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Telegram Desktop (official telegram.org build)
 License:        GPL-3.0-only WITH OpenSSL-exception
 URL:            https://desktop.telegram.org/
@@ -51,11 +51,11 @@ install -Dm0644 %{SOURCE6} %{buildroot}%{_datadir}/icons/hicolor/64x64/apps/org.
 install -Dm0644 %{SOURCE7} %{buildroot}%{_datadir}/icons/hicolor/128x128/apps/org.telegram.desktop.png
 install -Dm0644 %{SOURCE8} %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/org.telegram.desktop.png
 install -Dm0644 %{SOURCE9} %{buildroot}%{_datadir}/icons/hicolor/512x512/apps/org.telegram.desktop.png
-# Telegram skips its own updater for the executables listed here (it checks the XDG config dirs and /etc)
-for d in %{_sysconfdir}/tdesktop %{_sysconfdir}/xdg/tdesktop; do
-  install -d %{buildroot}$d/externalupdater.d
-  printf '%s\n' /opt/telegram/Telegram %{_bindir}/Telegram > %{buildroot}$d/externalupdater.d/telegram-desktop-official.conf
-done
+# Telegram skips its own updater (and then neither writes a ._<hash> launcher entry into ~/.local/share/applications)
+# for the executables listed in externalupdater.d next to its binary: 7.x reads only that folder, its data folders and
+# the XDG data dirs, not /etc (launcher.cpp ComputeExternalUpdater). It logs its binary as /opt/telegram/Telegram.
+install -d %{buildroot}/opt/telegram/externalupdater.d
+printf '%s\n' /opt/telegram/Telegram > %{buildroot}/opt/telegram/externalupdater.d/telegram-desktop-official.conf
 
 %files
 /opt/telegram
@@ -63,13 +63,10 @@ done
 %{_datadir}/applications/org.telegram.desktop.desktop
 %{_datadir}/dbus-1/services/org.telegram.desktop.service
 %{_datadir}/icons/hicolor/*/apps/org.telegram.desktop.png
-%config(noreplace) %{_sysconfdir}/tdesktop/externalupdater.d/telegram-desktop-official.conf
-%config(noreplace) %{_sysconfdir}/xdg/tdesktop/externalupdater.d/telegram-desktop-official.conf
-%dir %{_sysconfdir}/tdesktop
-%dir %{_sysconfdir}/tdesktop/externalupdater.d
-%dir %{_sysconfdir}/xdg/tdesktop
-%dir %{_sysconfdir}/xdg/tdesktop/externalupdater.d
 
 %changelog
+* Fri Oct 09 2026 fw13-hyprland - %{tg_version}-2
+- externalupdater.d next to the binary (7.x ignores /etc), so the updater and its own launcher entry stay off
+
 * Thu Oct 08 2026 fw13-hyprland - %{tg_version}-1
 - Official telegram.org build, repackaged
