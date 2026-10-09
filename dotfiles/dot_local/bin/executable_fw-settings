@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Settings — fw13-hypr's own settings app (flat, GTK3; colours follow the desktop theme and recolour live).
-Tiles like any app (no window rule).
+Tiles like any app (no window rule). Header: Framework gear + title, a search box that filters the page list
+(Enter or a single match opens the page; Ctrl+F focuses it, Esc clears it, Esc again closes) and a close button.
 
   fw-settings [page]          open (or focus the open window) at a page: network bluetooth sound display
                               power appearance input system fw13 (keys, backups, login shell — what the
@@ -32,6 +33,9 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.set_default_size(980, 680)
         self.pages = {}
 
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.pack_start(self.header(), False, False, 0)
+        outer.pack_start(Gtk.Separator(), False, False, 0)
         root = Gtk.Box()
         self.sidebar = Gtk.ListBox()
         self.sidebar.get_style_context().add_class("sidebar")
@@ -40,16 +44,65 @@ class SettingsWindow(Gtk.ApplicationWindow):
         self.stack.set_transition_type(Gtk.StackTransitionType.NONE)
         for pid, icon, title, _mod in PAGES:
             row = Gtk.ListBoxRow()
-            row.page_id = pid
+            row.page_id, row.title = pid, title.lower()
             row.add(ui_theme.label(f"{icon}   {title}"))
             self.sidebar.add(row)
         self.sidebar.connect("row-selected", lambda _l, row: row and self.show_page(row.page_id))
+        self.sidebar.set_filter_func(lambda row: self.query in row.title or self.query in row.page_id)
         root.pack_start(self.sidebar, False, False, 0)
         root.pack_start(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL), False, False, 0)
         root.pack_start(self.stack, True, True, 0)
-        self.add(root)
-        self.connect("key-press-event", lambda _w, e: e.keyval == Gdk.KEY_Escape and self.close())
+        outer.pack_start(root, True, True, 0)
+        self.add(outer)
+        self.connect("key-press-event", self.on_key)
         self.connect("delete-event", self.on_close)
+
+    def header(self):
+        box = Gtk.Box(spacing=10)
+        box.get_style_context().add_class("header")
+        logo = Gtk.Image()
+        path = os.path.expanduser("~/.config/fw13/theme/framework-logo.svg")  # accent colour, by fw13.theme
+
+        def load_logo():
+            logo.set_from_file(path) if os.path.isfile(path) else logo.clear()
+        load_logo()
+        ui_theme.watch(logo, load_logo)  # a theme change rewrites the logo in the new accent
+        box.pack_start(logo, False, False, 0)
+        box.pack_start(ui_theme.label("Settings", "title"), False, False, 0)
+        self.query = ""
+        self.search = Gtk.SearchEntry(placeholder_text="Search settings")
+        self.search.set_size_request(320, -1)
+        self.search.connect("search-changed", self.on_search)
+        self.search.connect("activate", lambda _e: self.open_first())
+        box.set_center_widget(self.search)
+        box.pack_end(ui_theme.button("\uf00d", self.close), False, False, 0)  # Font Awesome xmark
+        return box
+
+    def visible_rows(self):
+        return [r for r in self.sidebar.get_children() if r.get_child_visible()]
+
+    def on_search(self, entry):
+        self.query = entry.get_text().strip().lower()
+        self.sidebar.invalidate_filter()
+        if len(self.visible_rows()) == 1:
+            self.open_first()
+
+    def open_first(self):
+        rows = self.visible_rows()
+        if rows:
+            self.show_page(rows[0].page_id)
+
+    def on_key(self, _w, e):
+        if e.keyval in (Gdk.KEY_f, Gdk.KEY_F) and e.state & Gdk.ModifierType.CONTROL_MASK:
+            self.search.grab_focus()
+            return True
+        if e.keyval == Gdk.KEY_Escape:
+            if self.search.get_text():
+                self.search.set_text("")
+            else:
+                self.close()
+            return True
+        return False
 
     def show_page(self, pid):
         if pid not in self.pages:  # build lazily: a slow page doesn't delay opening Settings

@@ -54,7 +54,9 @@ radio, check { background: $surface2; border: none; border-radius: 0; box-shadow
 radio:checked, check:checked { background: $accent; }
 radiobutton:hover radio, checkbutton:hover check { background: $surface3; }
 radiobutton:hover radio:checked, checkbutton:hover check:checked { background: $accent; }
-/* fw-settings sidebar */
+/* fw-settings header and sidebar */
+.header { background: $bg_dim; padding: 8px 14px; }
+.header .title { font-weight: bold; }
 .sidebar { background: $bg_dim; }
 .sidebar row { padding: 8px 14px; margin: 0; border-radius: 0; border-left: 3px solid transparent; color: $fg; }
 .sidebar row:selected { background: $surface2; border-left-color: $accent; color: $fg_bright; }
