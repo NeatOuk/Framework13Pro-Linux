@@ -33,7 +33,6 @@ What you'll see at each step, and the Framework-only checks to do afterwards: [d
 | Shell | Lets you pick zsh, fish or bash |
 | Extras | Adds the Flathub remote (no apps installed), offers fingerprint enrollment, sets up Timeshift, and checks for firmware updates |
 | Telegram | **Telegram Desktop**, the official build from telegram.org, packaged as an RPM (`telegram-desktop-official`) so dnf owns it (`dnf remove telegram-desktop-official` removes it). Its own updater is off; re-run the installer to update it (it rebuilds only when telegram.org has a newer version). The icon in the bar's tray is Telegram's own |
-| Remote desktop | **Remmina** with its RDP (Windows), VNC (Linux, and Macs through Screen Sharing with the Mac's login) and keyring plugins, all from Fedora |
 | Citadel | Installs **Citadel**, an outbound firewall: when an app connects somewhere new it asks (Allow once / Always / Block) in its window, tray icon or a notification, and your answers become per-app policies. **Enforcement is on**, so blocked or unanswered connections really are blocked. It's built from [citadel-app](https://github.com/NeatOuk/citadel-app) and [citadel-helper](https://github.com/NeatOuk/citadel-helper) as RPMs (`dnf remove citadel citadel-helper` removes it). Turn blocking off any time with `citadel enforce off` or in Citadel → Settings |
 | Report | `~/.local/state/fw13-hypr/install-report.txt`: how many packages it added, their total size, and the largest 25 |
 
