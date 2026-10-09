@@ -4,3 +4,8 @@ chromium
 code
 # Fedora official (fw-calc: units, currencies, percentages)
 qalculate
+# Vendor official (Devolutions' RPM repo on Cloudsmith, repos/devolutions-rdm.repo, user decision): remote
+# connections manager (RDP, VNC, SSH…), ~1.2 GB with its bundled .NET runtime; runs under Xwayland
+RemoteDesktopManager
+# Fedora official: Secret Service for RDM's saved passwords (libsecret); Workstation has it, Minimal does not
+gnome-keyring

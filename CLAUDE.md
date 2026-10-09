@@ -25,7 +25,7 @@ ML4W-style **installer** (`install.sh`) that adds a Hyprland (uwsm) desktop on t
 install.sh                 preflight → repos → packages → system files → login/power → fingerprint/services → user phase → report
                            flags: --yes --ci --system-only --user-only; env: HYPR_COPR, REPO_URL, CHECKOUT
 packages/NN-*.txt          one package per line, '#' comments on their own line only (pkgs() splits on whitespace); 15-login, 61-power conditional; matugen is installed separately as `'matugen >= 4'` (needs the COPR)
-repos/*.repo               vendor repos (vscode, mise)
+repos/*.repo               vendor repos (vscode, mise, cloudflare-warp, devolutions-rdm)
 rpm/                       specs we build locally: telegram-desktop-official.spec (build_telegram_rpm in install.sh)
 system/usr/local/bin/      fw-timeshift-setup, fw-timeshift-restore (rsync-mode restore on Fedora's root/home btrfs: snapshot root, rsync onto
                            the copy, swap by rename; kernels side by side + grubby; holds Timeshift's lock; undo), fw-health-root
@@ -78,7 +78,7 @@ docs/FIRST-INSTALL.md      what a fresh Framework install looks like + Stage 7 h
 | Fedora (AI) | ollama (system service, local models for OpenCode) |
 | Fedora (dev) | podman, distrobox, gh (GitHub CLI) |
 | RPM Fusion | steam, steam-devices, ffmpeg, gstreamer1-plugins-bad-freeworld |
-| Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm), `cloudflare-warp` (pkg.cloudflareclient.com, `repos/cloudflare-warp.repo`, `packages/97-warp.txt` + its hard dep `nss-tools` from Fedora; installer enables `warp-svc`) |
+| Vendor | `code` (packages.microsoft.com), `mise` (mise.jdx.dev/rpm), `RemoteDesktopManager` (Devolutions' repo on Cloudsmith, `repos/devolutions-rdm.repo`, user decision; ~1.2 GB; its keyring needs `gnome-keyring`, listed in 30-apps), `cloudflare-warp` (pkg.cloudflareclient.com, `repos/cloudflare-warp.repo`, `packages/97-warp.txt` + its hard dep `nss-tools` from Fedora; installer enables `warp-svc`) |
 | mise (user, `~/.config/mise/config.toml`) | node LTS, chezmoi, starship, opencode (self-update off) |
 | Built from source as RPMs (owner's repos) | **Citadel** outbound firewall: `citadel` (github.com/NeatOuk/citadel-app, `main`, release stamped `.gitYYYYMMDD.<sha>`) + `citadel-helper` (github.com/NeatOuk/citadel-helper, tag `v1.3.2`), built by `build_citadel_rpm` in install.sh with their own .spec files (no prebuilt packages exist); build tools + PySide6 in `packages/95-citadel.txt`. Override with `CITADEL_APP_REF`/`CITADEL_HELPER_REF`. User phase enables `citadel.service` and `citadel enforce on` (user decision). The helper's polkit rule lets wheel use it without a password (by design). |
 | Repackaged official binary (telegram.org) | **Telegram Desktop** (user decision: the official build, as an RPM). `build_telegram_rpm` reads the version from telegram.org's download redirect, downloads the tarball (no checksum is published: HTTPS only) plus the launcher entry, D-Bus service and icons from github.com/telegramdesktop/tdesktop at the same tag, and builds `telegram-desktop-official` (`/opt/telegram`, `/usr/bin/Telegram`, `Conflicts: telegram-desktop`). Its self-updater is off via `/opt/telegram/externalupdater.d` (7.x reads it next to the binary, not in /etc; while the updater is on, Telegram writes its own `org.telegram.desktop._<hash>.desktop`, removed by the user phase); re-running install.sh rebuilds when telegram.org has a newer version, otherwise it's a no-op |

@@ -74,7 +74,7 @@ has_ppd() { rpm -q power-profiles-daemon >/dev/null 2>&1; }
 cat <<EOF
 
 fw13-hypr installer — Fedora ${FEDORA} (${VARIANT_ID:-${VARIANT:-unknown edition}})
-  Adds repos:   RPM Fusion free+nonfree, COPR ${HYPR_COPR:-<none>}, Microsoft (VS Code), mise
+  Adds repos:   RPM Fusion free+nonfree, COPR ${HYPR_COPR:-<none>}, Microsoft (VS Code), mise, Devolutions (RDM)
   Login screen: $(if ! use_greetd; then echo "keep existing $(current_dm) — adds a 'Hyprland (uwsm)' session (KEEP_DM=1)"; elif has_dm && [[ $(current_dm) != greetd ]]; then echo "greetd + tuigreet text login; disables $(current_dm) (not removed; KEEP_DM=1 keeps it)"; else echo "greetd + tuigreet text login"; fi)
   Power:        $(has_ppd && echo "keep power-profiles-daemon" || echo "install tuned + tuned-ppd")
   Removes:      nothing (ffmpeg-free is swapped for RPM Fusion ffmpeg)

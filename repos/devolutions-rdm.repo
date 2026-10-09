@@ -1,0 +1,17 @@
+[devolutions-rdm]
+name=Devolutions Remote Desktop Manager
+baseurl=https://dl.cloudsmith.io/public/devolutions/rdm/rpm/fedora/$releasever/$basearch
+enabled=1
+type=rpm-md
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://dl.cloudsmith.io/public/devolutions/rdm/gpg.FE7407ECB26FD2FE.key
+
+[devolutions-rdm-noarch]
+name=Devolutions Remote Desktop Manager (noarch)
+baseurl=https://dl.cloudsmith.io/public/devolutions/rdm/rpm/fedora/$releasever/noarch
+enabled=1
+type=rpm-md
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=https://dl.cloudsmith.io/public/devolutions/rdm/gpg.FE7407ECB26FD2FE.key
