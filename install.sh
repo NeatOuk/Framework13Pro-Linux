@@ -341,8 +341,11 @@ user_phase() {
     citadel enforce on || warn "couldn't turn Citadel enforcement on — open Citadel → Settings → Enforcement"
   fi
 
-  say "Flathub remote (no apps installed)"
+  say "Flathub remote + LocalSend (the only approved Flathub app)"
   flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+  # LocalSend (file sharing to nearby devices) isn't in Fedora; user-approved Flathub app. Receiving needs inbound
+  # 53317/tcp+udp, which the installer leaves closed (firewall untouched, user decision).
+  flatpak install --user -y --noninteractive flathub org.localsend.localsend_app || warn "LocalSend (Flathub) didn't install — retry: flatpak install --user flathub org.localsend.localsend_app"
 
   if ask "Enroll a fingerprint now?"; then fprintd-enroll || warn "fingerprint enroll failed — retry later: fprintd-enroll"; fi
   if ask "Set up Timeshift snapshots now?"; then $SUDO fw-timeshift-setup || warn "retry later: sudo fw-timeshift-setup"; fi
