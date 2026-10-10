@@ -219,6 +219,7 @@ system_phase() {
   $SUDO install -m 0755 system/usr/local/bin/* /usr/local/bin/
   compgen -G 'system/etc/systemd/system/*' >/dev/null && $SUDO install -m 0644 system/etc/systemd/system/* /etc/systemd/system/
   $SUDO install -m 0644 system/etc/udev/rules.d/* /etc/udev/rules.d/   # charger plug / unplug → fw-power-profile
+  $SUDO install -m 0644 system/etc/modprobe.d/* /etc/modprobe.d/   # battery charge limit (cros_charge_control on Framework); used from the next boot
   [[ $CI == 1 ]] || $SUDO udevadm control --reload
   # Timeshift schedules itself (its own /etc/cron.d jobs); our old fw-timeshift timer ran every check a second time.
   if [[ -e /etc/systemd/system/fw-timeshift.timer ]]; then

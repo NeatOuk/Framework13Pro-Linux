@@ -29,6 +29,7 @@ repos/*.repo               vendor repos (vscode, mise, cloudflare-warp, devoluti
 rpm/                       specs we build locally: telegram-desktop-official.spec (build_telegram_rpm in install.sh)
 system/usr/local/bin/      fw-timeshift-setup, fw-timeshift-restore (rsync-mode restore on Fedora's root/home btrfs: snapshot root, rsync onto
                            the copy, swap by rename; kernels side by side + grubby; holds Timeshift's lock; undo), fw-health-root
+system/etc/modprobe.d/     fw13-charge-control.conf: cros_charge_control probe_with_fwk_charge_control=1 (the kernel skips Framework otherwise) → charge limit in UPower / power panel
 system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/lib/fw13/health-root.json, 0644; install.sh copies the folder only if it has files),
                            fw-power-profile.service (boot) + system/etc/udev/rules.d/90-fw-power-profile.rules (Mains change) → fw-power-profile:
                            performance on AC, balanced on battery, via the PowerProfiles D-Bus API (PPD or tuned-ppd); a hand-picked profile lasts until the next plug/unplug
