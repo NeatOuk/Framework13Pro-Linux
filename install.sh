@@ -228,6 +228,9 @@ system_phase() {
   compgen -G 'system/etc/systemd/system/*' >/dev/null && $SUDO install -m 0644 system/etc/systemd/system/* /etc/systemd/system/
   $SUDO install -m 0644 system/etc/udev/rules.d/* /etc/udev/rules.d/   # charger plug / unplug → fw-power-profile
   $SUDO install -m 0644 system/etc/modprobe.d/* /etc/modprobe.d/   # battery charge limit (cros_charge_control on Framework); used from the next boot
+  # Bar VPN toggle without a password: pkexec fw-vpn-ctl (action file) + rule for wheel in an active local session
+  $SUDO install -D -m 0644 system/usr/share/polkit-1/actions/org.fw13.vpn.policy /usr/share/polkit-1/actions/org.fw13.vpn.policy
+  $SUDO install -D -m 0644 system/etc/polkit-1/rules.d/50-fw13-vpn.rules /etc/polkit-1/rules.d/50-fw13-vpn.rules
   [[ $CI == 1 ]] || $SUDO udevadm control --reload
   if ! echo "$FWTOOL_SHA256  /usr/local/bin/framework_tool" | sha256sum -c --status 2>/dev/null; then
     say "framework_tool $FWTOOL_VERSION (Framework's EC/firmware CLI)"

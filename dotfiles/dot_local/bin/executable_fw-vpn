@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Bar VPN toggle for a strongSwan (swanctl) connection: fw-vpn --bar | toggle
 # The connection is /etc/strongswan/swanctl/conf.d/<name>.conf (written by hand, root-only secrets) whose connection
-# and child are both called <name>. No such file → the module stays hidden. Toggling runs swanctl through pkexec,
-# so polkit asks for the password/fingerprint each time.
+# and child are both called <name>. No such file → the module stays hidden. Toggling runs the root wrapper
+# /usr/local/bin/fw-vpn-ctl through pkexec; its polkit rule lets wheel in an active local session in without a
+# password. Without the wrapper (older install) it falls back to pkexec swanctl, which asks each time.
 set -euo pipefail
 
 SIGNAL=13   # waybar custom/vpn "signal"
@@ -33,11 +34,12 @@ case ${1:-} in
   toggle)
     name="$(conn)" || exit 0
     if [[ -n $(routes) ]]; then
-      args=(--terminate --ike "$name") verb=disconnect
+      args=(--terminate --ike "$name") verb=disconnect ctl=down
     else
-      args=(--initiate --child "$name") verb=connect
+      args=(--initiate --child "$name") verb=connect ctl=up
     fi
-    pkexec /usr/bin/swanctl "${args[@]}" >/dev/null 2>&1 \
+    if [[ -x /usr/local/bin/fw-vpn-ctl ]]; then cmd=(/usr/local/bin/fw-vpn-ctl "$ctl"); else cmd=(/usr/bin/swanctl "${args[@]}"); fi
+    pkexec "${cmd[@]}" >/dev/null 2>&1 \
       || fw-notify "VPN $name" "Could not $verb (cancelled, or see: journalctl -u strongswan)"
     pkill -RTMIN+"$SIGNAL" -x waybar || true
     ;;

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Root side of the bar VPN toggle: fw-vpn-ctl up|down. Run through pkexec (action org.fw13.vpn, no password for
+# wheel in an active local session). Narrow on purpose: it only brings the first
+# /etc/strongswan/swanctl/conf.d/<name>.conf connection up or down and takes no other arguments.
+set -euo pipefail
+PATH=/usr/sbin:/usr/bin
+
+[[ $# == 1 ]] || { echo "usage: fw-vpn-ctl up|down" >&2; exit 2; }
+name=""
+for f in /etc/strongswan/swanctl/conf.d/*.conf; do
+  [[ -e $f ]] && { name="$(basename "$f" .conf)"; break; }
+done
+[[ -n $name ]] || { echo "fw-vpn-ctl: no connection in /etc/strongswan/swanctl/conf.d" >&2; exit 1; }
+
+case $1 in
+  up) exec swanctl --initiate --child "$name" ;;
+  down) exec swanctl --terminate --ike "$name" ;;
+  *) echo "usage: fw-vpn-ctl up|down" >&2; exit 2 ;;
+esac

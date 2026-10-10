@@ -1,0 +1,7 @@
+// fw13-hypr: the bar's VPN toggle (pkexec /usr/local/bin/fw-vpn-ctl up|down) needs no password for wheel
+// users sitting at the laptop. The wrapper only brings the one configured connection up or down.
+polkit.addRule(function (action, subject) {
+    if (action.id == "org.fw13.vpn" && subject.isInGroup("wheel") && subject.active && subject.local) {
+        return polkit.Result.YES;
+    }
+});
