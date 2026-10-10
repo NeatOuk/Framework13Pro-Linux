@@ -1,4 +1,4 @@
-"""System: date & time, time zone, device name, software updates (dnf), firmware updates (fwupd), About this laptop."""
+"""System: date & time, time zone, device name, weather (bar), software updates (dnf), firmware updates (fwupd), About this laptop."""
 import os
 import threading
 
@@ -8,10 +8,12 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
-from .. import system  # noqa: E402
+from .. import store, system, weather  # noqa: E402
 from .common import Page, label, launch  # noqa: E402
 
-BUSY_NOTE = {"tz": "Setting the time zone…", "ntp": "Changing time sync…", "host": "Saving…"}
+BUSY_NOTE = {"tz": "Setting the time zone…", "ntp": "Changing time sync…", "host": "Saving…",
+             "weather": "Looking up the city…"}
+UNITS = (("c", "°C"), ("f", "°F"))
 
 
 def bg(fn, done, *args, fail=lambda e: (False, str(e))):
@@ -87,6 +89,9 @@ class SystemPage(Page):
             self.add_widget(label("Loading…", "dim"))
         else:
             self.render_host()
+
+        self.heading("Weather")
+        self.render_weather()
 
         self.heading("Software updates")
         self.pk_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -281,6 +286,58 @@ class SystemPage(Page):
 
     def done_hostname(self, res):
         self.finish("host", res, "Saved")
+
+    # --- weather (bar) ---
+
+    def render_weather(self):
+        busy = "weather" in self.busy
+        self.city = Gtk.Entry(text=store.get("weather_city") or "", width_chars=26)
+        self.city.set_placeholder_text("e.g. Phnom Penh (empty = hidden)")
+        self.city.connect("activate", lambda _e: self.set_city())
+        save = Gtk.Button(label="Save")
+        save.connect("clicked", lambda _b: self.set_city())
+        self.city.set_sensitive(not busy)
+        save.set_sensitive(not busy)
+        p = store.get("weather_place")
+        shown = p.get("label") if isinstance(p, dict) and p.get("query") == store.get("weather_city") else None
+        self.row("City", self.hbox(self.city, save),
+                 hint=f"Bar shows the weather in {shown} · Open-Meteo" if shown else "Shown right of the clock")
+        self.add_widget(label(BUSY_NOTE["weather"] if busy else self.notes.get("weather", ""), "dim"))
+        units = Gtk.ComboBoxText()
+        for k, name in UNITS:
+            units.append(k, name)
+        units.set_active_id("f" if store.get("weather_units") == "f" else "c")
+        units.connect("changed", lambda c: (store.set("weather_units", c.get_active_id()), weather.refresh_bar()))
+        self.row("Temperature", units)
+
+    def set_city(self):
+        if "weather" in self.busy:
+            return
+        city = " ".join(self.city.get_text().split())
+        if not city:
+            store.set("weather_city", "")
+            store.set("weather_place", None)
+            self.notes["weather"] = "Weather hidden"
+            weather.refresh_bar()
+            self.render()
+            return
+        self.busy.add("weather")
+        self.render()
+        bg(lambda: (city, weather.geocode(city)), self.done_city, fail=lambda e: (city, e))
+
+    def done_city(self, res):
+        city, p = res
+        self.busy.discard("weather")
+        if isinstance(p, Exception):
+            self.notes["weather"] = f"Couldn't reach Open-Meteo: {p}"
+        elif p is None:
+            self.notes["weather"] = f"No place called “{city}” found"
+        else:
+            store.set("weather_place", p)
+            store.set("weather_city", city)
+            self.notes["weather"] = f"Saved: {p['label']}"
+            weather.refresh_bar()
+        self.render()
 
     # --- software updates ---
 

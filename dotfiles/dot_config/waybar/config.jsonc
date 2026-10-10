@@ -5,7 +5,7 @@
   "height": 26,
   "spacing": 0,
   "modules-left": ["custom/menu", "custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4", "custom/ws5"],
-  "modules-center": ["custom/profile", "clock", "custom/recording"],
+  "modules-center": ["custom/profile", "clock", "custom/weather", "custom/recording"],
   "modules-right": ["tray", "bluetooth", "network", "custom/warp", "custom/vpn", "pulseaudio", "custom/display", "custom/claude", "custom/opencode", "cpu", "battery", "custom/notifications", "custom/control", "custom/power"],
 
   "custom/menu": { "format": " ", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- fw-term", "tooltip": false },
@@ -23,6 +23,8 @@
     "format-alt": "{:%d %B W%V %Y}",
     "tooltip-format": "<tt>{calendar}</tt>"
   },
+  // Weather (fw-weather, Open-Meteo): icon + temperature, 3-day tooltip; hidden until a city is set in Settings → System; signal 15.
+  "custom/weather": { "exec": "fw-weather --bar", "return-type": "json", "interval": 1800, "signal": 15, "on-click": "fw-settings system" },
   "custom/recording": {
     "exec": "pgrep -x wf-recorder >/dev/null && echo ' REC' || echo ''",
     "interval": 2,

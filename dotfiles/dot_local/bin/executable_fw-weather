@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Bar weather (custom/weather, signal 15, right of the clock), Open-Meteo via fw13.weather.
+
+  fw-weather --bar      waybar JSON (empty = hidden when no city is set in Settings → System → Weather)
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+from fw13 import weather  # noqa: E402
+
+if sys.argv[1:] == ["--bar"]:
+    print(json.dumps(weather.bar()))
+else:
+    print(__doc__.strip(), file=sys.stderr)
+    sys.exit(2)
