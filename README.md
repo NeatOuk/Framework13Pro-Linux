@@ -105,6 +105,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 | SUPER+1..9 (+Shift), SUPER+Tab | Go to workspace / move window there (on the focused screen: every screen has its own 1–9), previous workspace |
 | SUPER+V | Clipboard history (the picked item is pasted into the window you were in) |
 | Print / Shift+Print / Alt+Print / SUPER+Print | Region shot / full shot / start or stop recording / color picker |
+| Alt+Shift+4 / Alt+Shift+3 | Snip a region / click a window → annotate in swappy (Ctrl+C copies, Ctrl+S saves to ~/Pictures/Screenshots) |
 | SUPER+N | Night light |
 | SUPER+W | Wallpaper picker |
 | SUPER+. / SUPER+= | Emoji picker (pasted into the window you were in) / calculator (Enter copies the result) |

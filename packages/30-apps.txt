@@ -2,6 +2,8 @@
 chromium
 # Vendor official (packages.microsoft.com)
 code
+# Fedora official (user decision): screenshot annotation for fw-capture snip/window (Alt+Shift+4 / Alt+Shift+3)
+swappy
 # Fedora official (fw-calc: units, currencies, percentages)
 qalculate
 # Vendor official (Devolutions' RPM repo on Cloudsmith, repos/devolutions-rdm.repo, user decision): remote
