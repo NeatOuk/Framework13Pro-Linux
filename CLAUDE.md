@@ -31,7 +31,9 @@ system/usr/local/bin/      fw-timeshift-setup, fw-timeshift-restore (rsync-mode 
                            the copy, swap by rename; kernels side by side + grubby; holds Timeshift's lock; undo), fw-health-root (+ `luks` {tpm2, pin} / null and `secure_boot`
                            from the EFI var), fw-disk-unlock password|tpm-pin|tpm (Settings → Security via `sudo` in fw-term: systemd-cryptenroll
                            --wipe-slot=tpm2 [--tpm2-device=auto --tpm2-pcrs=7 --tpm2-with-pin=yes]; refuses without a password/recovery slot,
-                           never removes it; tpm2-device=auto in the volume's crypttab line (backup crypttab.fw13.bak) or rd.luks.options via grubby; dracut -f)
+                           never removes it; `tpm` refused unless Secure Boot is on (PCR 7 is constant otherwise; the page hides it too);
+                           tpm2-device=auto in the volume's crypttab line (backup crypttab.fw13.bak) or rd.luks.options via grubby;
+                           /etc/dracut.conf.d/fw13-tpm2.conf adds tpm2-tss (removed for password); dracut -f --regenerate-all)
 system/etc/modprobe.d/     fw13-charge-control.conf: cros_charge_control probe_with_fwk_charge_control=1 (the kernel skips Framework otherwise) → charge limit in UPower / power panel
 system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/lib/fw13/health-root.json, 0644; install.sh copies the folder only if it has files),
                            fw-power-profile.service (boot) + system/etc/udev/rules.d/90-fw-power-profile.rules (Mains change) → fw-power-profile:

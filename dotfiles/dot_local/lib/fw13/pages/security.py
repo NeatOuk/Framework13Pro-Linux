@@ -118,16 +118,20 @@ class SecurityPage(Page):
                      hint="Encryption is chosen when Fedora is installed")
             return
         mode = unlock_mode(luks)
+        sb = root.get("secure_boot")
         combo = Gtk.ComboBoxText()
         for mid, text in UNLOCK:
-            combo.append(mid, text)
+            # TPM automatic needs Secure Boot (fw-disk-unlock refuses it otherwise); still listed if already in use
+            if mid != "tpm" or sb is True or mode == "tpm":
+                combo.append(mid, text)
         if mode:
             combo.set_active_id(mode)
         combo.connect("changed", self.on_unlock, mode)
-        sb = root.get("secure_boot")
         hint = "Opens a terminal: asks for the disk passphrase, which always stays as the fallback"
-        if sb is False:
-            hint += " · Secure Boot is off, so TPM + PIN is recommended over TPM automatic"
+        if sb is not True:
+            hint += " · TPM automatic needs Secure Boot on"
+        elif mode != "tpm":
+            hint += " · TPM automatic only guards against the disk leaving the laptop; TPM + PIN also against a stolen laptop"
         self.row("Unlock at boot" if mode else "Unlock at boot (unknown)", combo, hint=hint)
 
     def on_unlock(self, combo, mode):

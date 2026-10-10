@@ -2,10 +2,13 @@
 # fw-disk-unlock password|tpm-pin|tpm — how the LUKS volume under / unlocks at boot (Settings → Security).
 #   password  remove the TPM2 key slot; the passphrase is asked at boot (Fedora's default)
 #   tpm-pin   TPM2 (PCR 7) + a PIN asked at boot
-#   tpm       TPM2 (PCR 7), no prompt while the firmware/Secure Boot state is unchanged
+#   tpm       TPM2 (PCR 7), no prompt while the firmware/Secure Boot state is unchanged; refused with Secure Boot off
+#             (PCR 7 then reads the same whatever boots, so a live USB could unseal the key)
 # The passphrase slot is never removed: it stays the fallback whenever the TPM refuses. Enrolment asks for the
 # current passphrase (systemd-cryptenroll). Boot side: tpm2-device=auto in the /etc/crypttab line of the volume,
-# or rd.luks.options=tpm2-device=auto via grubby when crypttab has no line for it; then dracut -f.
+# or rd.luks.options=tpm2-device=auto via grubby when crypttab has no line for it; /etc/dracut.conf.d/fw13-tpm2.conf
+# adds dracut's tpm2-tss module (host-only dracut adds it only for a crypttab tpm2-device= line, so also for future
+# kernels); then dracut -f --regenerate-all, so a newer kernel not booted yet gets the change too.
 # Root only; run in a terminal (it prompts). Refreshes /var/lib/fw13/health-root.json at the end.
 set -euo pipefail
 
@@ -28,11 +31,24 @@ if [[ $mode != password ]]; then
   [[ -e /dev/tpmrm0 ]] || { echo "No TPM2 device (/dev/tpmrm0): enable the TPM in the BIOS (F2) first." >&2; exit 1; }
   command -v tpm2 >/dev/null || { echo "dracut's tpm2-tss module needs tpm2-tools: sudo dnf install tpm2-tools" >&2; exit 1; }
 fi
+if [[ $mode == tpm ]]; then
+  sb=0
+  for f in /sys/firmware/efi/efivars/SecureBoot-*; do
+    [[ -r $f ]] && sb="$(od -An -tu1 -j4 -N1 "$f" | tr -d ' ')"   # 4 attribute bytes, then the value: 1 = on
+  done
+  if [[ $sb != 1 ]]; then
+    echo "Secure Boot is off: PCR 7 then reads the same whatever boots, so anyone with the laptop could unseal the key." >&2
+    echo "Use 'fw-disk-unlock tpm-pin', or turn Secure Boot on in the BIOS (F2) first." >&2
+    exit 1
+  fi
+fi
 
 case $mode in
   password) what="remove the TPM key slot; the disk passphrase is asked at every boot" ;;
   tpm-pin)  what="TPM (PCR 7) + a PIN you choose now, asked at boot; the passphrase stays as the fallback" ;;
-  tpm)      what="TPM (PCR 7) unlocks without a prompt; the passphrase stays as the fallback" ;;
+  tpm)      what="TPM (PCR 7) unlocks without a prompt; the passphrase stays as the fallback.
+  This only protects against the disk being taken out of the laptop, not against someone holding the laptop
+  (the disk is already open when the login screen shows). TPM + PIN protects against both" ;;
 esac
 echo "Disk $dev (LUKS $uuid): $what."
 read -rp "Continue? [y/N] " a
@@ -62,8 +78,10 @@ crypttab_opts() {
   return "$rc"
 }
 
+DRACUT_CONF=/etc/dracut.conf.d/fw13-tpm2.conf
 if [[ $mode == password ]]; then
   systemd-cryptenroll --wipe-slot=tpm2 "$dev"
+  rm -f "$DRACUT_CONF"
   crypttab_opts remove || true
   grubby --update-kernel=ALL --remove-args="$KARG"
 else
@@ -71,6 +89,7 @@ else
   [[ $mode == tpm-pin ]] && args+=(--tpm2-with-pin=yes)
   # Enrolment happens before the wipe and the new slot is never wiped, so a failed enrolment keeps the old one.
   systemd-cryptenroll --wipe-slot=tpm2 "${args[@]}" "$dev"
+  echo 'add_dracutmodules+=" tpm2-tss "' > "$DRACUT_CONF"
   if crypttab_opts add; then
     echo "/etc/crypttab: tpm2-device=auto (backup: /etc/crypttab.fw13.bak)"
   else
@@ -79,7 +98,7 @@ else
   fi
 fi
 
-echo "Rebuilding the initramfs (dracut -f)…"
-dracut -f
+echo "Rebuilding the initramfs of every installed kernel (dracut -f --regenerate-all)…"
+dracut -f --regenerate-all
 /usr/local/bin/fw-health-root || true
 echo "Done. Takes effect at the next boot; the passphrase still works if the TPM refuses."
