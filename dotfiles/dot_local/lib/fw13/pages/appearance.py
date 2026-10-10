@@ -429,11 +429,9 @@ class AppearancePage(HyprPage):
         self.row(wp.library_dir().replace(os.path.expanduser("~"), "~", 1), box,
                  hint="Click a picture to use it (SUPER+W too); right-click to remove it")
         st = wp.state()
-        box = Gtk.Grid(column_spacing=8, row_spacing=6)  # two lines: fits Settings at half a screen
+        box = Gtk.Grid(column_spacing=8, row_spacing=6)  # no lock row: the lock screen is a tuigreet-style text box
         box.attach(label("Desktop", "dim"), 0, 0, 1, 1)
         box.attach(combo(wp.EFFECTS, st["desktop_effect"], lambda v: self.set_effect(desktop=v)), 1, 0, 1, 1)
-        box.attach(label("Lock screen", "dim"), 0, 1, 1, 1)
-        box.attach(combo(wp.EFFECTS, st["lock_effect"], lambda v: self.set_effect(lock=v)), 1, 1, 1, 1)
         box.set_sensitive(not self.walling)
         self.row("Effects", box, hint="Applied to a copy; theme colours always come from the original")
 
