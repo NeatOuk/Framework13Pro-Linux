@@ -1,10 +1,12 @@
-"""Idle timeouts (dim → lock → screen off → suspend): Settings → Power owns ~/.config/hypr/hypridle.conf.
+"""Idle timeouts (dim → lock → screen off → suspend), separately when plugged in and on battery: Settings → Power
+owns ~/.config/hypr/hypridle.conf.
 
-Values live in fw13.store (idle_dim, idle_lock, idle_screen_off, idle_suspend; seconds, 0 = never) and are
-rendered into hypridle's own (hyprlang) config, then hypridle is restarted. Screen on/off uses the Lua
-dispatcher — `hyprctl dispatch dpms off` is rejected since the Hyprland config moved to Lua.
-Dim and screen off hold auto-brightness (`fw-autobrightness pause` / `resume`, a no-op when it isn't running) so the
-dim isn't taken for a manual change; `resume` runs after the brightness is restored.
+Values live in fw13.store (idle_dim, idle_lock, idle_screen_off, idle_suspend = plugged in; the same keys with
+"_battery" = on battery; seconds, 0 = never). A battery value that was never set follows the plugged-in one, so
+existing settings keep working. hypridle can't tell the power source, so each listener calls `fw-idle <action>
+ac|battery`, which acts only on that source (one listener without a guard when both timeouts are equal).
+Dim and screen off hold auto-brightness (`fw-autobrightness pause` / `resume`, inside fw-idle) so the dim isn't taken
+for a manual change. hypridle is restarted after a change.
 """
 import os
 import signal
@@ -13,16 +15,22 @@ import subprocess
 from . import store
 
 PATH = os.path.expanduser("~/.config/hypr/hypridle.conf")
-KEYS = ("idle_dim", "idle_lock", "idle_screen_off", "idle_suspend")
+AC_KEYS = ("idle_dim", "idle_lock", "idle_screen_off", "idle_suspend")
+BAT = "_battery"
+KEYS = AC_KEYS + tuple(k + BAT for k in AC_KEYS)
 DEFAULTS = {"idle_dim": 150, "idle_lock": 300, "idle_screen_off": 330, "idle_suspend": 900}
 CHOICES = [0, 60, 120, 180, 300, 600, 900, 1800, 3600]  # seconds; 0 = never
 DPMS = 'hyprctl dispatch \'hl.dsp.dpms({ action = "%s" })\''
-AUTO = "fw-autobrightness"
+# key → (fw-idle action on timeout, on resume)
+ACTIONS = {"idle_dim": ("dim", "undim"), "idle_lock": ("lock", None),
+           "idle_screen_off": ("screen-off", "screen-on"), "idle_suspend": ("suspend", None)}
 
 
 def get():
     data = store.load()
-    return {k: int(data.get(k, DEFAULTS[k])) for k in KEYS}
+    v = {k: int(data.get(k, DEFAULTS[k])) for k in AC_KEYS}
+    v.update({k + BAT: int(data.get(k + BAT, v[k])) for k in AC_KEYS})
+    return v
 
 
 def label(seconds):
@@ -38,19 +46,15 @@ def render(v):
            "  before_sleep_cmd = loginctl lock-session",
            f"  after_sleep_cmd = {DPMS % 'on'}",
            "}"]
-    if v["idle_dim"]:
-        out += ["listener {            # dim", f"  timeout = {v['idle_dim']}",
-                f"  on-timeout = {AUTO} pause; brightnessctl -s set 10%",
-                f"  on-resume = brightnessctl -r; {AUTO} resume", "}"]
-    if v["idle_lock"]:
-        out += ["listener {            # lock", f"  timeout = {v['idle_lock']}",
-                "  on-timeout = loginctl lock-session", "}"]
-    if v["idle_screen_off"]:
-        out += ["listener {            # screen off", f"  timeout = {v['idle_screen_off']}",
-                f"  on-timeout = {AUTO} pause; {DPMS % 'off'}", f"  on-resume = {DPMS % 'on'}; {AUTO} resume", "}"]
-    if v["idle_suspend"]:
-        out += ["listener {            # suspend", f"  timeout = {v['idle_suspend']}",
-                "  on-timeout = systemctl suspend", "}"]
+    for key, (act, back) in ACTIONS.items():
+        ac, bat = v[key], v[key + BAT]
+        for secs, when in ([(ac, "")] if ac == bat else [(ac, " ac"), (bat, " battery")]):
+            if secs:
+                out += [f"listener {{            # {act}{when or ' (both)'}", f"  timeout = {secs}",
+                        f"  on-timeout = fw-idle {act}{when}"]
+                if back:
+                    out.append(f"  on-resume = fw-idle {back}")
+                out.append("}")
     return "\n".join(out) + "\n"
 
 

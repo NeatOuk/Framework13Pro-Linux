@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# hypridle actions (written into hypridle.conf by fw13.idle): fw-idle <action> [ac|battery]
+# With ac/battery the action runs only on that power source, so one hypridle config can hold both the "Plugged in"
+# and "On battery" timeouts (Settings → Power → Screen & sleep). undim/screen-on run only after our own dim/screen-off
+# (a marker in $XDG_RUNTIME_DIR), so they never undo a brightness or auto-brightness change made in between.
+set -euo pipefail
+
+on_ac() {
+  local s
+  for s in /sys/class/power_supply/*; do
+    [[ $(cat "$s/type" 2>/dev/null) == Mains && $(cat "$s/online" 2>/dev/null) == 1 ]] && return 0
+  done
+  return 1
+}
+
+case ${2:-} in
+  ac) on_ac || exit 0 ;;
+  battery) on_ac && exit 0 ;;
+  "") ;;
+  *) echo "fw-idle: unknown power source $2" >&2; exit 2 ;;
+esac
+
+RUN="${XDG_RUNTIME_DIR:-/tmp}"
+dpms() { hyprctl dispatch "hl.dsp.dpms({ action = \"$1\" })" >/dev/null; }
+
+case ${1:-} in
+  dim)        fw-autobrightness pause || true; brightnessctl -q -s set 10%; touch "$RUN/fw-idle-dimmed" ;;
+  undim)      [[ -e $RUN/fw-idle-dimmed ]] || exit 0; rm -f "$RUN/fw-idle-dimmed"; brightnessctl -q -r; fw-autobrightness resume || true ;;
+  lock)       loginctl lock-session ;;
+  screen-off) fw-autobrightness pause || true; dpms off; touch "$RUN/fw-idle-off" ;;
+  screen-on)  dpms on; [[ -e $RUN/fw-idle-off ]] || exit 0; rm -f "$RUN/fw-idle-off"; fw-autobrightness resume || true ;;
+  suspend)    systemctl suspend ;;
+  *) echo "usage: fw-idle dim|undim|lock|screen-off|screen-on|suspend [ac|battery]" >&2; exit 2 ;;
+esac

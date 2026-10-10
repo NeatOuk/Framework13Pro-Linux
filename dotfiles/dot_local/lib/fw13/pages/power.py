@@ -1,5 +1,5 @@
 """Power: battery state, time left/to full, health, power profile, 80 % charge limit, a read-only tuning readout,
-screen & sleep timeouts."""
+screen & sleep timeouts (plugged in and on battery)."""
 import gi
 
 gi.require_version("Gtk", "3.0")
@@ -59,17 +59,22 @@ class PowerPage(Page):
                 self.row(title, label(value, "dim"), hint=hint)
         self.heading("Screen & sleep")
         cur = idle.get()
-        for key, text, hint in (("idle_dim", "Dim the screen after", "to 10 % brightness; any input restores it"),
-                                ("idle_lock", "Lock after", "SUPER+L locks right away"),
-                                ("idle_screen_off", "Turn the screen off after", None),
-                                ("idle_suspend", "Suspend after", "the laptop also locks before sleeping")):
-            combo = Gtk.ComboBoxText()
-            choices = sorted(set(idle.CHOICES) | {cur[key]})
-            for s in choices:
-                combo.append(str(s), idle.label(s))
-            combo.set_active_id(str(cur[key]))
-            combo.connect("changed", lambda c, k=key: idle.write({k: int(c.get_active_id())}))
-            self.row(text, combo, hint=hint)
+        rows = (("idle_dim", "Dim the screen after", "to 10 % brightness; any input restores it"),
+                ("idle_lock", "Lock after", "SUPER+L locks right away"),
+                ("idle_screen_off", "Turn the screen off after", None),
+                ("idle_suspend", "Suspend after", "the laptop also locks before sleeping"))
+        for suffix, title in (("", "Plugged in"), (idle.BAT, "On battery")):
+            if suffix and not b:
+                continue  # no battery: only the plugged-in timeouts apply
+            self.add_widget(label(title, "dim"))
+            for key, text, hint in rows:
+                k = key + suffix
+                combo = Gtk.ComboBoxText()
+                for s in sorted(set(idle.CHOICES) | {cur[k]}):
+                    combo.append(str(s), idle.label(s))
+                combo.set_active_id(str(cur[k]))
+                combo.connect("changed", lambda c, k=k: idle.write({k: int(c.get_active_id())}))
+                self.row(text, combo, hint=hint)
         if not b and not names:
             self.add_widget(label("No battery or power profile service found.", "dim"))
         self.show_all()
