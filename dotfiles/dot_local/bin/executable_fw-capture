@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Print. Usage: fw-capture [region|screen|snip|window|record|color]
-# snip/window open the shot in swappy (annotate; Ctrl+C copies, Ctrl+S saves to $f)
+# snip/window open the shot in swappy (annotate; Ctrl+C copies, Ctrl+S saves via ~/.config/swappy/config; Esc keeps no file)
 dir="$HOME/Pictures/Screenshots"; mkdir -p "$dir"
 mode="${1:-$(printf 'region\nscreen\nsnip\nwindow\nrecord\ncolor\n' | fuzzel --dmenu --prompt 'Capture › ' --lines 6)}"
 f="$dir/$(date +%F_%H-%M-%S).png"
 case "$mode" in
   region) g="$(slurp)" || exit 0; grim -g "$g" "$f" && wl-copy < "$f" && fw-notify "Screenshot" "Copied + saved $f" ;;
   screen) grim "$f" && wl-copy < "$f" && fw-notify "Screenshot" "Copied + saved $f" ;;
-  snip)   g="$(slurp)" || exit 0; grim -g "$g" - | swappy -f - -o "$f" ;;
+  snip)   g="$(slurp)" || exit 0; grim -g "$g" - | swappy -f - ;;
   window) # boxes "x,y wxh title" for the windows on every monitor's visible workspaces; slurp -r = click one
           g="$(hyprctl -j monitors | python3 -c '
 import json, subprocess, sys
@@ -17,7 +17,7 @@ for c in json.loads(subprocess.run(["hyprctl", "-j", "clients"], capture_output=
         (x, y), (w, h) = c["at"], c["size"]
         print(f"{x},{y} {w}x{h} {c["title"]}".replace("\n", " "))
 ' | slurp -r)" || exit 0
-          grim -g "$g" - | swappy -f - -o "$f" ;;
+          grim -g "$g" - | swappy -f - ;;
   record) fw-record ;;
   color)  hyprpicker -a ;;
 esac

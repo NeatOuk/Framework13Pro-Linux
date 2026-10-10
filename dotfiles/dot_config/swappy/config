@@ -1,5 +1,4 @@
-# swappy (fw-capture snip / window). fw-capture passes -o <file>, so Ctrl+S saves there;
-# save_dir/format apply when swappy is started by hand.
+# swappy (fw-capture snip / window). No -o (it writes on every exit), so only Ctrl+S saves, here:
 [Default]
 save_dir=$HOME/Pictures/Screenshots
 save_filename_format=%Y-%m-%d_%H-%M-%S.png
