@@ -23,7 +23,7 @@ ML4W-style **installer** (`install.sh`) that adds a Hyprland (uwsm) desktop on t
 
 ```
 install.sh                 preflight → repos → packages → system files → login/power → fingerprint/services → user phase → report
-                           flags: --yes --ci --system-only --user-only; env: HYPR_COPR, REPO_URL, CHECKOUT
+                           flags: --yes --ci --system-only --user-only; env: HYPR_COPR, REPO_URL, CHECKOUT; warns (banner + before Done) when neither gnome-shell nor plasma-workspace is installed: GNOME recommended, never installed
 packages/NN-*.txt          one package per line, '#' comments on their own line only (pkgs() splits on whitespace); 15-login, 61-power conditional; matugen is installed separately as `'matugen >= 4'` (needs the COPR)
 repos/*.repo               vendor repos (vscode, mise, cloudflare-warp, devolutions-rdm)
 rpm/                       specs we build locally: telegram-desktop-official.spec (build_telegram_rpm in install.sh)

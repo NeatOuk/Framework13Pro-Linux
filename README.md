@@ -37,6 +37,8 @@ What you'll see at each step, and the Framework-only checks to do afterwards: [d
 | Citadel | Installs **Citadel**, an outbound firewall: when an app connects somewhere new it asks (Allow once / Always / Block) in its window, tray icon or a notification, and your answers become per-app policies. **Enforcement is on**, so blocked or unanswered connections really are blocked. It's built from [citadel-app](https://github.com/NeatOuk/citadel-app) and [citadel-helper](https://github.com/NeatOuk/citadel-helper) as RPMs (`dnf remove citadel citadel-helper` removes it). Turn blocking off any time with `citadel enforce off` or in Citadel → Settings |
 | Report | `~/.local/state/fw13-hypr/install-report.txt`: how many packages it added, their total size, and the largest 25 |
 
+On **Minimal** or another install without GNOME or KDE, the installer warns before it starts and again at the end: Hyprland alone has no file mounting, printing or document viewers, so install GNOME first with `sudo dnf group install workstation-product-environment` (it stays selectable at login). The installer doesn't add it for you.
+
 Not supported: Atomic editions (Silverblue/Kinoite), since they can't install packages this way. The installer stops on those.
 
 ## Backups

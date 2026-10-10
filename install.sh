@@ -74,6 +74,9 @@ current_dm() { basename "$(readlink -f /etc/systemd/system/display-manager.servi
 # decision, an exception to rule 3a: the old one is only disabled, not removed). KEEP_DM=1 keeps an existing one.
 use_greetd() { [[ ${KEEP_DM:-0} != 1 ]] || ! has_dm; }
 has_ppd() { rpm -q power-profiles-daemon >/dev/null 2>&1; }
+# Hyprland alone has no file mounting, printing or document viewers; a GNOME or KDE install brings them.
+bare_install() { ! rpm -q --quiet gnome-shell && ! rpm -q --quiet plasma-workspace; }
+recommend_gnome() { warn "No GNOME or KDE found: install GNOME first for file mounting, printing and viewers: sudo dnf group install workstation-product-environment"; }
 
 cat <<EOF
 
@@ -83,6 +86,7 @@ fw13-hypr installer — Fedora ${FEDORA} (${VARIANT_ID:-${VARIANT:-unknown editi
   Power:        $(has_ppd && echo "keep power-profiles-daemon" || echo "install tuned + tuned-ppd")
   Removes:      nothing (ffmpeg-free is swapped for RPM Fusion ffmpeg)
 EOF
+bare_install && recommend_gnome
 ask "Continue?" || exit 0
 
 mkdir -p "$STATE_DIR"
@@ -428,4 +432,5 @@ user_phase() {
 [[ $DO_SYSTEM == 1 ]] && system_phase
 [[ $DO_USER == 1 ]] && user_phase
 
+bare_install && recommend_gnome
 say "Done. Reboot, then pick 'Hyprland (uwsm)' at the login screen.  Report: $STATE_DIR/install-report.txt"
