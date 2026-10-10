@@ -6,7 +6,7 @@ What to expect when you run fw13-hyprland on a freshly installed Fedora, from th
 
 - **Fedora:** 44 **Workstation**, default btrfs layout (`root`/`home`), disk encryption on. Connect Wi-Fi in the Fedora installer; the MT7925 card works out of the box.
 - **Power:** plug it in. Several GB get downloaded; Ollama with its ROCm libraries alone is about 5 GB installed.
-- **Have ready** (any of them can be left blank and added later in Settings → fw13):
+- **Have ready** (any of them can be left blank and added later in Settings → My Framework):
   - Chromium sign-in keys (`GOOGLE_API_KEY`, client ID, client secret)
   - restic repository and password (keep the password in a password manager)
   - Ollama Cloud API key
@@ -42,7 +42,7 @@ A **text login screen** (tuigreet) replaces GNOME's: type your password, Hyprlan
 ## 3. First Hyprland login
 
 - **Look:** thin bar with the Framework gear on the left, Tokyo Night colours (or colours from your wallpaper).
-- **Windows:** the terminal (kitty; Ghostty if picked in Settings → fw13) on workspace 1, Chromium on workspace 2 (or on the external monitor's workspace 1).
+- **Windows:** the terminal (kitty; Ghostty if picked in Settings → My Framework) on workspace 1, Chromium on workspace 2 (or on the external monitor's workspace 1).
 - **Hardware check:** a "Hardware check" notification; **Open** shows the Framework checks (CPU driver, GPU, Wi-Fi, Bluetooth, battery and charge limit, firmware, fingerprint, light sensor, suspend). WARN can mean the expected value wasn't verifiable before real hardware existed: report those.
 - **Citadel** asks about each app's first outgoing connection (Chromium, `warp-svc`, Steam…). Answer Always or Block; enforcement is on, so unanswered connections stay blocked.
 - **Health:** about 15 minutes after login, `fw-health` runs. One notification with **Diagnose** if something needs attention; silent otherwise.

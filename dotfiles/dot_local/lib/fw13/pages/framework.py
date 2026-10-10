@@ -1,4 +1,4 @@
-"""Framework: fan, keyboard backlight, fingerprint LED and read-only EC reports, over Framework's framework_tool
+"""Hardware sections of Settings → My Framework (pages/fw13.py): fan, keyboard backlight, fingerprint LED and read-only EC reports, over Framework's framework_tool
 (install.sh, /usr/local/bin). The EC needs root, so changes run through pkexec (polkit asks) and reports open in a
 terminal with sudo. Read without root: fan speed (cros_ec hwmon) and the keyboard backlight (LED class, set via
 brightnessctl). The charge limit lives on the Power page (UPower). Flashing, key remapping, EC reboot and the
@@ -13,7 +13,7 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from .common import Page, label, launch  # noqa: E402
+from .common import label, launch  # noqa: E402
 from .system import bg  # noqa: E402
 
 TOOL = "framework_tool"
@@ -62,38 +62,34 @@ def ec(*args):
     return False, lines[-1] if lines else "cancelled"
 
 
-class FrameworkPage(Page):
-    def __init__(self):
-        super().__init__("Framework")
+class Hardware:
+    """Adds the Framework hardware sections to a page (heading/row/add_widget/set_status); the page calls
+    render(page) on each rebuild. Keeps one 2 s timer for the fan speed."""
+
+    def __init__(self, page):
+        self.page = page
         self.hwmon = fan_hwmon()
         self.rpm = None
-        self.status = None
-        self.refresh()
         if self.hwmon:
-            self.timer = GLib.timeout_add_seconds(2, self.tick)
-            self.connect("destroy", lambda _w: GLib.source_remove(self.timer))
+            timer = GLib.timeout_add_seconds(2, self.tick)
+            page.connect("destroy", lambda _w: GLib.source_remove(timer))
 
-    def refresh(self):
-        self.clear()
+    def render(self):
+        page = self.page
+        self.rpm = None
         if not shutil.which(TOOL):
-            self.add_widget(label("framework_tool isn't installed (install.sh adds it on Framework laptops).",
-                                  "dim", wrap=True))
-            self.show_all()
             return
-        self.status = label("", "dim", wrap=True)
-        self.add_widget(self.status)
-
-        self.heading("Fan")
+        page.heading("Fan")
         if self.hwmon:
             self.rpm = label("", "dim")
-            self.row("Speed now", self.rpm)
+            page.row("Speed now", self.rpm)
             self.tick()
-        self.row("Fan mode", self.combo(FAN_MODES, self.set_fan),
+        page.row("Fan mode", self.combo(FAN_MODES, self.set_fan),
                  hint="A fixed speed lasts until you pick Automatic again, or the laptop restarts")
 
         kbd = kbd_path()
         if kbd:
-            self.heading("Keyboard backlight")
+            page.heading("Keyboard backlight")
             mx = read_int(os.path.join(kbd, "max_brightness")) or 100
             cur = read_int(os.path.join(kbd, "brightness")) or 0
             scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
@@ -101,20 +97,19 @@ class FrameworkPage(Page):
             scale.set_size_request(220, -1)
             scale.connect("value-changed", lambda s: subprocess.Popen(
                 ["brightnessctl", "-q", "-d", KBD_LED, "set", f"{int(s.get_value())}%"]))
-            self.row("Brightness", scale, hint="Fn+Space cycles it too")
+            page.row("Brightness", scale, hint="Fn+Space cycles it too")
 
-        self.heading("Fingerprint reader")
-        self.row("Power button LED", self.combo(FP_LEVELS, lambda v: self.run_ec("--fp-led-level", v)),
+        page.heading("Fingerprint reader")
+        page.row("Power button LED", self.combo(FP_LEVELS, lambda v: self.run_ec("--fp-led-level", v)),
                  hint="Brightness of the light around the fingerprint reader")
 
-        self.heading("Reports")
+        page.heading("Hardware reports")
         for opt, title, hint in REPORTS:
             b = Gtk.Button(label="Show…")
             b.connect("clicked", lambda _b, o=opt: launch("fw-term", "--hold", "-e", "sudo", TOOL, o))
-            self.row(title, b, hint=hint)
-        self.add_widget(label("Reports open in a terminal and ask for your password (the EC needs root).",
+            page.row(title, b, hint=hint)
+        page.add_widget(label("Reports open in a terminal and ask for your password (the EC needs root).",
                               "dim", wrap=True))
-        self.show_all()
 
     @staticmethod
     def combo(items, on_pick):
@@ -134,21 +129,16 @@ class FrameworkPage(Page):
             self.run_ec("--fansetduty", mode)
 
     def run_ec(self, *args):
-        self.status.set_text("Waiting for authorisation…")
+        self.page.set_status("Waiting for authorisation…")
         bg(ec, self.ec_done, *args, fail=lambda e: (False, str(e)))
 
     def ec_done(self, res):
         ok, msg = res
-        self.status.set_text("Done" if ok else f"Not changed: {msg}")
+        self.page.set_status("Done" if ok else f"Not changed: {msg}", "ok" if ok else "bad")
         return False
 
     def tick(self):
-        if self.rpm is None:
-            return True
-        rpm = read_int(os.path.join(self.hwmon, "fan1_input"))
-        self.rpm.set_text("off" if rpm == 0 else f"{rpm} rpm" if rpm is not None else "unknown")
+        if self.rpm is not None:
+            rpm = read_int(os.path.join(self.hwmon, "fan1_input"))
+            self.rpm.set_text("off" if rpm == 0 else f"{rpm} rpm" if rpm is not None else "unknown")
         return True
-
-
-def build():
-    return FrameworkPage()

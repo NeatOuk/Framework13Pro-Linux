@@ -1,4 +1,4 @@
-"""fw13: what the installer asked once — Chromium sign-in keys, Ollama Cloud key, restic backups, login shell —
+"""My Framework (page id fw13): the laptop's hardware (pages/framework.py), then what the installer asked once — Chromium sign-in keys, Ollama Cloud key, restic backups, login shell —
 plus the dotfiles checkout and what the installer set up.
 
 Backend: fw13.setup (chezmoi.toml + chezmoi apply of just the affected files). Key fields are always empty and
@@ -15,6 +15,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 
 from .. import setup, store, terminal  # noqa: E402
 from ..ui_theme import button  # noqa: E402
+from . import framework  # noqa: E402
 from .appearance import background  # noqa: E402
 from .common import Page, label, launch, wrap  # noqa: E402
 from .system import bg  # noqa: E402
@@ -22,7 +23,7 @@ from .system import bg  # noqa: E402
 OK_DOT = "●"
 # Typed into a bash -c of the restore terminal (no secrets: the env file is sourced, never put in argv).
 RESTORE_SH = r"""set -a
-. "$HOME/.config/restic/env" || { echo "No ~/.config/restic/env — set the repository in Settings → fw13."
+. "$HOME/.config/restic/env" || { echo "No ~/.config/restic/env — set the repository in Settings → My Framework."
                                   read -rp "Press Enter to close. " _; exit 1; }
 set +a
 cat <<'EOT'
@@ -77,7 +78,7 @@ def _load():
 
 class Fw13Page(Page):
     def __init__(self):
-        super().__init__("fw13")
+        super().__init__("My Framework")
         self.status = self.add_widget(label("", "dim", wrap=True))
         self.status.set_no_show_all(True)
         self.st = None         # _load() result; None until the first load
@@ -85,6 +86,7 @@ class Fw13Page(Page):
         self.confirming = False
         self.restic = None     # (state, message) from the last connection test
         self.poll = None       # GLib source id while a backup runs
+        self.hw = framework.Hardware(self)
         self.render()
         self.reload()
 
@@ -146,6 +148,7 @@ class Fw13Page(Page):
             self.show_all()
             return
         st = self.st["status"]
+        self.hw.render()
         self.heading("Keys")
         self.render_chromium(st["chromium"])
         self.render_ollama(st["ollama"]["api_key"])

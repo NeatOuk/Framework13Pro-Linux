@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
-# Open the terminal chosen in Settings → fw13 (kitty or Ghostty): fw-term [--class C] [--hold] [--dir D] [-e cmd…]
+# Open the terminal chosen in Settings → My Framework (kitty or Ghostty): fw-term [--class C] [--hold] [--dir D] [-e cmd…]
 set -euo pipefail
 exec env PYTHONPATH="$HOME/.local/lib${PYTHONPATH:+:$PYTHONPATH}" python3 -m fw13.terminal "$@"

@@ -428,7 +428,7 @@ def _backup_journal(since_days=35):
 
 def check_backup(now):
     if not os.path.exists(setup.T_RESTIC_ENV):
-        return Result("backup", SKIP, "restic isn't set up", "Settings → fw13 → Backup")
+        return Result("backup", SKIP, "restic isn't set up", "Settings → My Framework → Backup")
     st = setup.backup_state()
     if st["running"]:
         return Result("backup", OK, "a backup is running now", "")
@@ -438,13 +438,13 @@ def check_backup(now):
     last = st["last"]
     when = f"last run {_ago(last, now)}" if last else "no backup in the last 35 days"
     if not st["timer"]:
-        return Result("backup", WARN, f"the daily backup is off · {when}", "Settings → fw13 → Backup")
+        return Result("backup", WARN, f"the daily backup is off · {when}", "Settings → My Framework → Backup")
     if last and st["result"] not in ("", "success"):
         why = f"{st['result']}, exit {st['status']}" if st["status"] else st["result"]
         return Result("backup", FAIL, f"the last backup failed ({why}) · {when}",
                       "journalctl --user -u restic-backup -n 50")
     if not last:
-        return Result("backup", WARN, when, "Settings → fw13 → Backup → Back up now")
+        return Result("backup", WARN, when, "Settings → My Framework → Backup → Back up now")
     if now - last > 3 * 86400:
         return Result("backup", WARN, when, "journalctl --user -u restic-backup.timer")
     return Result("backup", OK, when, "")

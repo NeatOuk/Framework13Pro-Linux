@@ -2,7 +2,7 @@
 {{ if ne .restic.repository "" -}}
 # Repository: {{ printf "%s %s" .restic.repository (dig "restic_creds" "aws_access_key_id" "" .) | sha256sum }} (hash only; a new repository or S3 key runs this script again)
 # Init the repo if it doesn't exist yet, then enable the daily timer — unless it was turned off in
-# Settings → fw13 (restic_timer_off in ~/.config/fw13/settings.json), which a `chezmoi update` must respect.
+# Settings → My Framework (restic_timer_off in ~/.config/fw13/settings.json), which a `chezmoi update` must respect.
 set -a; . "$HOME/.config/restic/env"; set +a
 {{- if hasPrefix "sftp:" .restic.repository }}
 restic -o sftp.args=-oBatchMode=yes cat config >/dev/null 2>&1  # key login only: never hang on an ssh prompt
@@ -13,7 +13,7 @@ restic cat config >/dev/null 2>&1
 {{- end }}
 systemctl --user daemon-reload
 if grep -Eqs '"restic_timer_off": *true' "$HOME/.config/fw13/settings.json"; then
-  echo "restic: daily backup is off (Settings → fw13); not enabling restic-backup.timer"
+  echo "restic: daily backup is off (Settings → My Framework); not enabling restic-backup.timer"
 else
   systemctl --user enable --now restic-backup.timer
 fi

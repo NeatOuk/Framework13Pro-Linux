@@ -1,4 +1,4 @@
-"""The terminal every fw13 launcher opens: kitty (default) or Ghostty, picked in Settings → fw13 (store `terminal`).
+"""The terminal every fw13 launcher opens: kitty (default) or Ghostty, picked in Settings → My Framework (store `terminal`).
 
 argv() maps one interface (command, window class, keep open, working folder) onto each terminal's flags, so callers
 never name a terminal. Classes must be valid GTK application ids for Ghostty: fw13.jarvis, fw13.btop.

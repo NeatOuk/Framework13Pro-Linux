@@ -20,7 +20,7 @@ CITADEL_APP_REPO="${CITADEL_APP_REPO:-https://github.com/NeatOuk/citadel-app.git
 CITADEL_APP_REF="${CITADEL_APP_REF:-main}"
 CITADEL_HELPER_REPO="${CITADEL_HELPER_REPO:-https://github.com/NeatOuk/citadel-helper.git}"
 CITADEL_HELPER_REF="${CITADEL_HELPER_REF:-v1.3.2}"
-# Ghostty (Settings → fw13 → Terminal): built from the official release tarball. The sha256 is pinned per version
+# Ghostty (Settings → My Framework → Terminal): built from the official release tarball. The sha256 is pinned per version
 # (checked once against the release's minisign signature, key in Ghostty's PACKAGING.md). GHOSTTY=0 skips it.
 GHOSTTY="${GHOSTTY:-1}"
 GHOSTTY_VERSION="${GHOSTTY_VERSION:-1.3.1}"
@@ -213,7 +213,7 @@ system_phase() {
   if [[ -n $tg ]]; then $DNF install "$tg"; else echo "telegram-desktop-official is current"; fi
 
   if [[ $GHOSTTY != 0 ]]; then
-    say "Ghostty — built from the official release (Settings → fw13 → Terminal)"
+    say "Ghostty — built from the official release (Settings → My Framework → Terminal)"
     local gt
     gt="$(build_ghostty_rpm)" || die "Ghostty RPM build failed (see above)"
     if [[ -n $gt ]]; then $DNF install "$gt"; else echo "ghostty-official is current"; fi

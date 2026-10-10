@@ -1,5 +1,5 @@
 -- Simple, conventional keymap.  hl.bind("MODS + key", dispatcher, { options })
-local term    = "uwsm app -- fw-term"  -- kitty or Ghostty, Settings → fw13
+local term    = "uwsm app -- fw-term"  -- kitty or Ghostty, Settings → My Framework
 local browser = "uwsm app -- chromium-browser"
 local files   = "uwsm app -- thunar"
 local editor  = "uwsm app -- code"

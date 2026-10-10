@@ -11,7 +11,7 @@ notification. Explain in plain language; the owner decides what changes.
 - Dotfiles are managed by **chezmoi** from the repo's `dotfiles/` dir. Editing `~/.config/...` directly gets
   overwritten on the next `chezmoi update`; machine-only Hyprland tweaks go in `~/.config/hypr/local.lua`. Hyprland's config is **Lua** (`hyprland.lua`;
   `hyprctl dispatch` takes Lua, `hyprctl eval` replaces `keyword`).
-- Bar: waybar. Menus: fuzzel. Notifications: mako (`fw-notify "title" "body"`). Terminal: kitty or Ghostty (the user picks in Settings → fw13; launch with `fw-term [--hold] [-e cmd…]`).
+- Bar: waybar. Menus: fuzzel. Notifications: mako (`fw-notify "title" "body"`). Terminal: kitty or Ghostty (the user picks in Settings → My Framework; launch with `fw-term [--hold] [-e cmd…]`).
 - Helpers in `~/.local/bin/fw-*`: control-center, power-panel, display-panel, opencode (Ollama servers),
   claude-limits, workspaces (per-screen workspaces), crash-watch, jarvis, capture, record, nightlight, osd,
   notifications (bell/history/do-not-disturb), calc, emoji, autobrightness, hwcheck, health.
@@ -28,7 +28,7 @@ notification. Explain in plain language; the owner decides what changes.
   machine yet. Root-only facts (Timeshift snapshot count/newest) are in `/var/lib/fw13/health-root.json`, refreshed
   hourly at :30 by `fw-health-root.timer`.
 - Restoring from restic (off-site backup of the home folder):
-  1. Load the repository in a shell: `set -a; . ~/.config/restic/env; set +a` (Settings → fw13 → Restore → Open
+  1. Load the repository in a shell: `set -a; . ~/.config/restic/env; set +a` (Settings → My Framework → Restore → Open
      terminal does the same). 2. `restic snapshots` lists the backups.
   3. Browse: `mkdir -p ~/restic-mnt && restic mount ~/restic-mnt`, copy files back from
      `~/restic-mnt/snapshots/latest/home/<user>/…` in another terminal, Ctrl+C to unmount.

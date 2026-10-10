@@ -14,7 +14,7 @@
   password   = {{ $resticPass | quote }}
 [data.ollama]
   api_key    = {{ $ollamaKey | quote }}
-{{- /* Tables without a prompt (set from Settings → fw13) are written back as they are, or a re-init would drop them. */}}
+{{- /* Tables without a prompt (set from Settings → My Framework) are written back as they are, or a re-init would drop them. */}}
 {{- if hasKey . "restic_creds" }}
 [data.restic_creds]
 {{- range $k, $v := .restic_creds }}
