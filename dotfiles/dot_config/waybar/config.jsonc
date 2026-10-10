@@ -34,7 +34,11 @@
     "on-click": "FW_BAR=1 fw-control-center bluetooth",
     "on-click-right": "uwsm app -- blueman-manager"
   },
+  // "format" is waybar's fallback ({ifname} by default, shown as text): route changes from a VPN briefly leave
+  // the module in a state without its own format-* key (e.g. linked), so every state gets an icon.
   "network": {
+    "format": "\uf1eb",
+    "format-linked": "\uf1eb",
     "format-wifi": "",
     "format-ethernet": "",
     "format-disconnected": "",
