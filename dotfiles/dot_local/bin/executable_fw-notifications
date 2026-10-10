@@ -205,6 +205,7 @@ def menu(pos):
 def toggle_dnd():
     makoctl("mode", "-t", DND)
     bar_refresh()
+    subprocess.run(["pkill", "-RTMIN+14", "-x", "waybar"], stderr=subprocess.DEVNULL)  # fw-profile: DND off leaves Focus/Zen
 
 
 def main():

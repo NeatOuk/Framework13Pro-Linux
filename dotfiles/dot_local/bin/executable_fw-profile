@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Bar profile (custom/profile, signal 14, left of the clock): Normal / Focus / Zen.
+
+  fw-profile            menu (bar click with FW_BAR=1 → opens below the icon)
+  fw-profile --bar      waybar JSON
+  fw-profile set normal|focus|zen
+
+Focus = mako do-not-disturb (the bell's mode, so the bell shows it too). Zen = do-not-disturb + gaps, borders and
+rounding 0 live (hyprctl eval) + night light on; the values before Zen (and whether night light was on) are kept in
+store `profile_saved` and put back when leaving Zen. Store `profile` + `profile_session` (Hyprland's instance
+signature): a new session starts Normal (Hyprland and mako start fresh, nothing to restore).
+Turning DND off on the bell during Focus/Zen leaves the profile (Zen restores).
+"""
+import json
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+from fw13 import store  # noqa: E402
+from fw13.hypr import hypr, lua  # noqa: E402
+from fw13.hyprsettings import call  # noqa: E402
+
+SIGNAL = 14
+DND = "do-not-disturb"
+ZEN_KEYS = ("general.gaps_in", "general.gaps_out", "general.border_size", "decoration.rounding")
+# Font Awesome 6 Free: circle-half-stroke, moon, leaf
+MODES = {"normal": ("", "Normal"), "focus": ("", "Focus · no notifications"),
+         "zen": ("", "Zen · no notifications, no gaps or borders, night light")}
+
+
+def session():
+    return os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
+
+
+def current():
+    """The active profile; "normal" after a new login."""
+    if store.get("profile_session") != session():
+        return "normal"
+    p = store.get("profile")
+    return p if p in MODES else "normal"
+
+
+def dnd_on():
+    r = subprocess.run(["makoctl", "mode"], capture_output=True, text=True)
+    return DND in r.stdout.split()
+
+
+def option(key):
+    """An int Hyprland option (gaps come as css "a b c d": all sides alike, as Settings sets them)."""
+    try:
+        o = json.loads(hypr("-j", "getoption", key.replace(".", ":")))
+        return int(o["int"]) if "int" in o else int(o["css"].split()[0])
+    except (ValueError, KeyError, IndexError):
+        return None
+
+
+def nightlight_on():
+    return subprocess.run(["pgrep", "-x", "hyprsunset"], capture_output=True).returncode == 0
+
+
+def nightlight(on):
+    if not on:
+        subprocess.run(["pkill", "-x", "hyprsunset"])
+    elif not nightlight_on():
+        subprocess.Popen(["uwsm", "app", "--", "hyprsunset", "-t", str(int(store.get("nightlight_temp") or 4000))],
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def enter_zen():
+    saved = {k: option(k) for k in ZEN_KEYS}
+    saved = {k: v for k, v in saved.items() if v is not None}
+    store.set("profile_saved", {"options": saved, "nightlight": nightlight_on()})
+    lua(call({k: 0 for k in ZEN_KEYS}))
+    nightlight(True)
+
+
+def leave_zen():
+    saved = store.get("profile_saved") or {}
+    if saved.get("options"):
+        lua(call(saved["options"]))
+    if not saved.get("nightlight"):
+        nightlight(False)
+    store.set("profile_saved", None)
+
+
+def set_mode(mode):
+    old = current()
+    if old == "zen" and mode != "zen":
+        leave_zen()
+    elif mode == "zen" and old != "zen":
+        enter_zen()
+    subprocess.run(["makoctl", "mode", "-a" if mode != "normal" else "-r", DND], capture_output=True)
+    store.set("profile", mode)
+    store.set("profile_session", session())
+    for sig in (12, SIGNAL):  # bell + this module
+        subprocess.run(["pkill", f"-RTMIN+{sig}", "-x", "waybar"], stderr=subprocess.DEVNULL)
+
+
+def bar():
+    mode = current()
+    if mode != "normal" and not dnd_on():  # DND turned off on the bell: leave the profile
+        set_mode("normal")
+        mode = "normal"
+    icon, label = MODES[mode]
+    print(json.dumps({"text": icon, "class": mode,
+                      "tooltip": f"Profile: {label}\nClick: Normal / Focus / Zen"}))
+
+
+def menu():
+    pos = []
+    if os.environ.get("FW_BAR"):
+        pos = [p for p in subprocess.run(["fw-menu-anchor", "profile"], capture_output=True,
+                                         text=True).stdout.split("\n") if p]
+        if not pos:
+            return  # second click on the icon: menu closed
+    mode, keys = current(), list(MODES)
+    rows = [f"{MODES[k][0]}  {MODES[k][1]}" + ("  (on)" if k == mode else "") for k in keys]
+    r = subprocess.run(["fuzzel", "--dmenu", "--index", *pos, "--prompt", "Profile › ", "--width", "56",
+                        "--lines", str(len(rows))], input="\n".join(rows), capture_output=True, text=True)
+    try:
+        pick = int(r.stdout.strip()) if r.returncode == 0 else None
+    except ValueError:
+        pick = None
+    if pick is not None and 0 <= pick < len(keys):
+        set_mode(keys[pick])
+
+
+def main():
+    args = sys.argv[1:]
+    if args == ["--bar"]:
+        bar()
+    elif not args:
+        menu()
+    elif len(args) == 2 and args[0] == "set" and args[1] in MODES:
+        set_mode(args[1])
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
