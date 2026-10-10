@@ -241,6 +241,8 @@ system_phase() {
   # file fw13.theme rewrites in the user's home (Appearance → Chromium switch); it stays "{}" until the switch is on.
   $SUDO install -d -m 0755 /etc/chromium/policies/managed
   $SUDO ln -sfn "$HOME/.config/fw13/theme/chromium-policy.json" /etc/chromium/policies/managed/fw13-theme.json
+  # Memory Saver on, maximum savings, as a recommended default: chrome://settings/performance can still turn it off.
+  $SUDO install -D -m 0644 system/etc/chromium/policies/recommended/fw13-memory.json /etc/chromium/policies/recommended/fw13-memory.json
   # Hide the plain "Hyprland" login entry: only "Hyprland (uwsm)" should be picked.
   $SUDO install -D -m 0644 system/usr/local/share/wayland-sessions/hyprland.desktop /usr/local/share/wayland-sessions/hyprland.desktop
   # Hyprland session for GDM/SDDM/greetd, if the package didn't ship one
