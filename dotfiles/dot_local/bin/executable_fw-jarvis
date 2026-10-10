@@ -111,6 +111,6 @@ case ${1:-} in
   diagnose) diagnose "${2:?usage: fw-jarvis diagnose <file>}" ;;
   crash)    last_crash ;;
   repo)     launch "$REPO" "${2:?usage: fw-jarvis repo <agent> <task>}" "${3:?usage: fw-jarvis repo <agent> <task>}" ;;
-  open)     launch "$HOME" "${2:-claude}" ;;
+  open)     launch "$JDIR" "${2:-claude}" ;;
   *) echo "usage: fw-jarvis [menu | diagnose <file> | crash | repo <agent> <task> | open claude|opencode]" >&2; exit 2 ;;
 esac

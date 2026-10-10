@@ -15,7 +15,7 @@ hl.bind("SUPER + E",         exec(files))
 hl.bind("SUPER + SHIFT + C", exec(editor))
 hl.bind("SUPER + C",         exec("fw-clip-key copy"))
 hl.bind("SUPER + X",         exec("fw-clip-key cut"))
-hl.bind("SUPER + SHIFT + A", exec("uwsm app -- fw-term -e claude"))
+hl.bind("SUPER + SHIFT + A", exec("fw-jarvis open claude"))   -- Claude in ~/jarvis, with Settings → Jarvis model/effort
 hl.bind("SUPER + A",         exec("fw-jarvis"))
 hl.bind("SUPER + I",         exec("fw-settings"))
 hl.bind("SUPER + W",         exec("fw-wallpaper"))
