@@ -25,6 +25,10 @@ CITADEL_HELPER_REF="${CITADEL_HELPER_REF:-v1.3.2}"
 GHOSTTY="${GHOSTTY:-1}"
 GHOSTTY_VERSION="${GHOSTTY_VERSION:-1.3.1}"
 GHOSTTY_SHA256="${GHOSTTY_SHA256:-3349d25600ffbda281197a18314f7d18791969cffe9474f0ff16a45a9ebfccdb}"
+# framework_tool (Framework's official EC/firmware CLI, github.com/FrameworkComputer/framework-system; user decision):
+# the release binary → /usr/local/bin, sha256 pinned per version (GitHub's asset digest). Bump both together.
+FWTOOL_VERSION="${FWTOOL_VERSION:-v0.6.6}"
+FWTOOL_SHA256="${FWTOOL_SHA256:-ebc2f3ca300dac6f484c02d058833372ff8dd3c23f2a74b63c774f8dc2f86171}"
 STATE_DIR="$HOME/.local/state/fw13-hypr"
 
 YES=0 CI=0 DO_SYSTEM=1 DO_USER=1
@@ -221,6 +225,13 @@ system_phase() {
   $SUDO install -m 0644 system/etc/udev/rules.d/* /etc/udev/rules.d/   # charger plug / unplug → fw-power-profile
   $SUDO install -m 0644 system/etc/modprobe.d/* /etc/modprobe.d/   # battery charge limit (cros_charge_control on Framework); used from the next boot
   [[ $CI == 1 ]] || $SUDO udevadm control --reload
+  if ! echo "$FWTOOL_SHA256  /usr/local/bin/framework_tool" | sha256sum -c --status 2>/dev/null; then
+    say "framework_tool $FWTOOL_VERSION (Framework's EC/firmware CLI)"
+    local fwt; fwt="$(mktemp)"
+    curl -fsSL -o "$fwt" "https://github.com/FrameworkComputer/framework-system/releases/download/$FWTOOL_VERSION/framework_tool" \
+      && echo "$FWTOOL_SHA256  $fwt" | sha256sum -c --status || { rm -f "$fwt"; die "framework_tool download failed or checksum mismatch"; }
+    $SUDO install -m 0755 "$fwt" /usr/local/bin/framework_tool; rm -f "$fwt"
+  fi
   # Timeshift schedules itself (its own /etc/cron.d jobs); our old fw-timeshift timer ran every check a second time.
   if [[ -e /etc/systemd/system/fw-timeshift.timer ]]; then
     [[ $CI == 1 ]] || $SUDO systemctl disable --now fw-timeshift.timer 2>/dev/null || true
