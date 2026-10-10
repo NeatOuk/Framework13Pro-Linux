@@ -26,7 +26,13 @@ REPORTS = [("--versions", "Firmware versions", "BIOS, EC, USB-C controllers, car
            ("--privacy", "Privacy switches", "camera and microphone kill switches"),
            ("--pdports", "USB-C ports", "what each port is supplying or drawing"),
            ("--inputdeck", "Input modules", "keyboard, touchpad and their connectors"),
-           ("--intrusion", "Chassis opened", "how often the bottom cover was removed")]
+           ("--intrusion", "Chassis opened", "how often the bottom cover was removed"),
+           ("--dp-hdmi-info", "Display expansion cards", "HDMI / DisplayPort card firmware and state"),
+           ("--audio-card-info", "Audio expansion card", "firmware and state of a plugged-in audio card"),
+           ("--s0ix-counter", "Deep sleep count", "how often the laptop reached hardware sleep (s0ix)"),
+           ("--ec-hib-delay", "Power-off delay", "the current setting below, in seconds"),
+           ("--console recent", "Controller log", "the EC's own recent log, for debugging")]
+HIB_DELAYS = [("300", "5 minutes"), ("3600", "1 hour"), ("86400", "1 day")]
 
 
 def fan_hwmon():
@@ -103,10 +109,15 @@ class Hardware:
         page.row("Power button LED", self.combo(FP_LEVELS, lambda v: self.run_ec("--fp-led-level", v)),
                  hint="Brightness of the light around the fingerprint reader")
 
+        page.heading("When shut down")
+        page.row("Fully power off after", self.combo(HIB_DELAYS, lambda v: self.run_ec("--ec-hib-delay", v)),
+                 hint="Until then the controller stays awake (fast power-on, a little battery drain); "
+                      "shorter keeps more charge while the laptop is off")
+
         page.heading("Hardware reports")
         for opt, title, hint in REPORTS:
             b = Gtk.Button(label="Show…")
-            b.connect("clicked", lambda _b, o=opt: launch("fw-term", "--hold", "-e", "sudo", TOOL, o))
+            b.connect("clicked", lambda _b, o=opt: launch("fw-term", "--hold", "-e", "sudo", TOOL, *o.split()))
             page.row(title, b, hint=hint)
         page.add_widget(label("Reports open in a terminal and ask for your password (the EC needs root).",
                               "dim", wrap=True))

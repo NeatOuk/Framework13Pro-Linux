@@ -325,6 +325,12 @@ def check_suspend(fw):
         dev = _read("/sys/power/suspend_stats/last_failed_dev")
         return Result("suspend", WARN, f"{found} · {fail_n} failed" + (f" (last: {dev})" if dev else ""),
                       "journalctl -k -b -g 'PM:'")
+    # last_hw_sleep: µs the last suspend spent in hardware sleep (s0ix); 0 after a suspend = the SoC never got
+    # there, so the battery drained as if awake. The 2^64-1 sentinel means "no data", not a failure.
+    hw = _read("/sys/power/suspend_stats/last_hw_sleep")
+    if ok_n.isdigit() and int(ok_n) and hw == "0":
+        return Result("suspend", WARN, f"{found} · the last suspend never reached deep sleep (battery drains)",
+                      "sudo framework_tool --s0ix-counter; journalctl -k -b -g 'amd_pmc|PM:'")
     return Result("suspend", OK, found, "")
 
 
