@@ -1,5 +1,6 @@
-"""System: date & time, time zone, device name, firmware updates (fwupd), About this laptop."""
+"""System: date & time, time zone, device name, firmware updates (fwupd) + framework_tool versions, About this laptop."""
 import os
+import shutil
 import threading
 
 import gi
@@ -316,6 +317,11 @@ class SystemPage(Page):
                 upd.get_style_context().add_class("primary")
                 upd.connect("clicked", lambda _b: launch("fw-term", "--hold", "-e", "fwupdmgr", "update"))
                 buttons.pack_start(upd, False, False, 0)
+        if shutil.which("framework_tool"):  # Framework's EC/firmware CLI (install.sh); needs root, so in a terminal
+            ver = Gtk.Button(label="Framework versions…")
+            ver.set_tooltip_text("sudo framework_tool --versions: BIOS, EC, USB-C, cards, SSD")
+            ver.connect("clicked", lambda _b: launch("fw-term", "--hold", "-e", "sudo", "framework_tool", "--versions"))
+            buttons.pack_start(ver, False, False, 0)
         self.fw_box.pack_start(buttons, False, False, 0)
         self.fw_box.show_all()
 
