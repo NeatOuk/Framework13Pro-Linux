@@ -14,7 +14,7 @@ import subprocess
 import threading
 import urllib.request
 
-from . import store
+from . import store, system
 
 TOS_KEY = "warp_tos"
 TOS_URL = "https://www.cloudflare.com/application/terms/"
@@ -303,12 +303,10 @@ def iface():
 
 def citadel_note():
     """A warning when Citadel enforces but has no allow policy for warp-svc yet, else None."""
-    if not shutil.which("citadel"):
+    st = system.citadel_status()
+    if not (st and st.get("enforce")):
         return None
     try:
-        st = json.loads(subprocess.run(["citadel", "status"], capture_output=True, text=True, timeout=3).stdout)
-        if not st.get("enforce"):
-            return None
         rules = json.loads(subprocess.run(["citadel", "rules"], capture_output=True, text=True, timeout=3).stdout)
     except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError):
         return None

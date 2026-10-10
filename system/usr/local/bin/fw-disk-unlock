@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# fw-disk-unlock password|tpm-pin|tpm — how the LUKS volume under / unlocks at boot (Settings → Security).
+#   password  remove the TPM2 key slot; the passphrase is asked at boot (Fedora's default)
+#   tpm-pin   TPM2 (PCR 7) + a PIN asked at boot
+#   tpm       TPM2 (PCR 7), no prompt while the firmware/Secure Boot state is unchanged
+# The passphrase slot is never removed: it stays the fallback whenever the TPM refuses. Enrolment asks for the
+# current passphrase (systemd-cryptenroll). Boot side: tpm2-device=auto in the /etc/crypttab line of the volume,
+# or rd.luks.options=tpm2-device=auto via grubby when crypttab has no line for it; then dracut -f.
+# Root only; run in a terminal (it prompts). Refreshes /var/lib/fw13/health-root.json at the end.
+set -euo pipefail
+
+mode=${1:-}
+case $mode in password|tpm-pin|tpm) ;; *) echo "usage: fw-disk-unlock password|tpm-pin|tpm" >&2; exit 2 ;; esac
+[[ $EUID == 0 ]] || { echo "Run as root: sudo fw-disk-unlock $mode" >&2; exit 1; }
+
+src="$(findmnt -nvo SOURCE /)"
+dev="$(lsblk -nslpo NAME,FSTYPE "$src" | awk '$2 == "crypto_LUKS" {print $1; exit}')"
+[[ -n $dev ]] || { echo "/ is not on a LUKS volume: nothing to change." >&2; exit 1; }
+uuid="$(cryptsetup luksUUID "$dev")"
+KARG=rd.luks.options=tpm2-device=auto
+
+# Safety net: a passphrase (or recovery key) must exist before we touch anything.
+if ! systemd-cryptenroll "$dev" | awk '$2 == "password" || $2 == "recovery" {f = 1} END {exit !f}'; then
+  echo "$dev has no passphrase or recovery key slot: refusing (it would be the only way in if the TPM refuses)." >&2
+  exit 1
+fi
+if [[ $mode != password ]]; then
+  [[ -e /dev/tpmrm0 ]] || { echo "No TPM2 device (/dev/tpmrm0): enable the TPM in the BIOS (F2) first." >&2; exit 1; }
+  command -v tpm2 >/dev/null || { echo "dracut's tpm2-tss module needs tpm2-tools: sudo dnf install tpm2-tools" >&2; exit 1; }
+fi
+
+case $mode in
+  password) what="remove the TPM key slot; the disk passphrase is asked at every boot" ;;
+  tpm-pin)  what="TPM (PCR 7) + a PIN you choose now, asked at boot; the passphrase stays as the fallback" ;;
+  tpm)      what="TPM (PCR 7) unlocks without a prompt; the passphrase stays as the fallback" ;;
+esac
+echo "Disk $dev (LUKS $uuid): $what."
+read -rp "Continue? [y/N] " a
+[[ $a == [yY]* ]] || { echo "Nothing changed."; exit 0; }
+
+# crypttab_opts add|remove: rewrite the options of our volume's crypttab line; fails when there is no such line.
+crypttab_opts() {
+  [[ -f /etc/crypttab ]] || return 1
+  local tmp rc=0
+  tmp="$(mktemp)"
+  awk -v u="$uuid" -v act="$1" '
+    !/^[[:space:]]*#/ && NF >= 2 && ($1 == "luks-" u || $2 == "UUID=" u) {
+      n = split(NF >= 4 ? $4 : "", o, ","); out = ""
+      for (i = 1; i <= n; i++) if (o[i] != "" && o[i] !~ /^tpm2-device=/) out = out (out ? "," : "") o[i]
+      if (act == "add") out = out (out ? "," : "") "tpm2-device=auto"
+      if (NF < 3) $3 = "none"
+      if (out != "") $4 = out; else NF = 3
+      found = 1
+    }
+    { print }
+    END { exit !found }' /etc/crypttab > "$tmp" || rc=$?
+  if (( rc == 0 )); then
+    [[ -e /etc/crypttab.fw13.bak ]] || cp -a /etc/crypttab /etc/crypttab.fw13.bak
+    cat "$tmp" > /etc/crypttab   # keeps owner, mode and SELinux label
+  fi
+  rm -f "$tmp"
+  return "$rc"
+}
+
+if [[ $mode == password ]]; then
+  systemd-cryptenroll --wipe-slot=tpm2 "$dev"
+  crypttab_opts remove || true
+  grubby --update-kernel=ALL --remove-args="$KARG"
+else
+  args=(--tpm2-device=auto --tpm2-pcrs=7)
+  [[ $mode == tpm-pin ]] && args+=(--tpm2-with-pin=yes)
+  # Enrolment happens before the wipe and the new slot is never wiped, so a failed enrolment keeps the old one.
+  systemd-cryptenroll --wipe-slot=tpm2 "${args[@]}" "$dev"
+  if crypttab_opts add; then
+    echo "/etc/crypttab: tpm2-device=auto (backup: /etc/crypttab.fw13.bak)"
+  else
+    grubby --update-kernel=ALL --args="$KARG"
+    echo "No crypttab line for this volume: kernel argument $KARG added (grubby)"
+  fi
+fi
+
+echo "Rebuilding the initramfs (dracut -f)…"
+dracut -f
+/usr/local/bin/fw-health-root || true
+echo "Done. Takes effect at the next boot; the passphrase still works if the TPM refuses."

@@ -35,6 +35,16 @@ def _err(rc, err, what):
     return False, lines[-1] if lines else f"{what} failed"
 
 
+def citadel_status():
+    """`citadel status` (Citadel firewall) as a dict, or None when it isn't installed or doesn't answer."""
+    _rc, out, _e = _run("citadel", "status", timeout=3)
+    try:
+        st = json.loads(out)
+    except ValueError:
+        return None
+    return st if isinstance(st, dict) else None
+
+
 # --- date & time -------------------------------------------------------------
 
 def time_state():

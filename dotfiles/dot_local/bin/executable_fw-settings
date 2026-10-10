@@ -4,7 +4,7 @@ Tiles like any app (no window rule). Header: Framework gear + title, a search bo
 (Enter or a single match opens the page; Ctrl+F focuses it, Esc clears it, Esc again closes) and a close button.
 
   fw-settings [page]          open (or focus the open window) at a page: network bluetooth sound display
-                              power appearance input system fw13 (keys, backups, login shell — what the
+                              power appearance input jarvis security system fw13 (keys, backups, login shell — what the
                               installer asked once)
   fw-settings --toggle [page] bar sliders icon: close it if it's open and focused, else open/focus
 

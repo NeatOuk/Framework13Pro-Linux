@@ -654,13 +654,17 @@ def dotfiles_state():
     return st
 
 
+def login_screen():
+    """The enabled display manager, as a name (Settings → Security)."""
+    dm = os.path.realpath("/etc/systemd/system/display-manager.service")
+    dm = os.path.basename(dm).removesuffix(".service") if os.path.exists(dm) else ""
+    return {"gdm": "GDM", "sddm": "SDDM", "greetd": "greetd + tuigreet", "lightdm": "LightDM"}.get(
+        dm, dm or "none (text console)")
+
+
 def installed_state():
     """[(label, value)] of what the installer set up. Each probe is quick and read-only."""
     rows = []
-    dm = os.path.realpath("/etc/systemd/system/display-manager.service")
-    dm = os.path.basename(dm).removesuffix(".service") if os.path.exists(dm) else ""
-    rows.append(("Login", {"gdm": "GDM", "sddm": "SDDM", "greetd": "greetd + tuigreet", "lightdm": "LightDM"}
-                 .get(dm, dm or "none (text console)")))
     rc, out, _e = _run("rpm", "-q", "--qf", "%{VENDOR}", "hyprland", timeout=10)
     if rc == 0:
         m = re.search(r"Copr - user (\S+)", out)

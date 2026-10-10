@@ -73,7 +73,7 @@ def _load():
             "backup": setup.backup_state() if st["restic"]["repository"]["set"] else None,
             "shells": setup.shells(), "shell": setup.current_shell(),
             "dots": setup.dotfiles_state(), "installed": setup.installed_state(),
-            "fingers": setup.fingerprints(), "timeshift": setup.timeshift_state()}
+            "timeshift": setup.timeshift_state()}
 
 
 class Fw13Page(Page):
@@ -300,12 +300,6 @@ class Fw13Page(Page):
     def render_installed(self):
         for k, v in self.st["installed"]:
             self.row(k, label(v, "dim", wrap=True, max_width_chars=40, xalign=1))
-        n = self.st["fingers"]
-        if n is None:
-            self.row("Fingerprint", label("No reader found", "dim"))
-        else:
-            enrol = button("Enrol", lambda: launch("fw-term", "--hold", "-e", "fprintd-enroll"))
-            self.row("Fingerprint", _buttons(label(f"{n} finger{'s' if n != 1 else ''}", "dim"), enrol))
         self.row("Timeshift", label(self.st["timeshift"] or "Not set up (sudo fw-timeshift-setup)", "dim",
                                     wrap=True, max_width_chars=40, xalign=1))
 

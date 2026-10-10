@@ -3,7 +3,9 @@
 # /var/lib/fw13/health-root.json, 0644, written atomically. Counts, dates and states only — no paths, names or
 # device ids. Timeshift: the snapshot count and the newest one (epoch seconds) from `timeshift --list`;
 # "unknown" while another Timeshift holds its lock (its hourly cron job runs on the hour), "none" when it
-# isn't set up. Read-only apart from that file. Tests: FW13_HEALTH_ROOT=<dir> (paths below it), FW13_TIMESHIFT=<cmd>.
+# isn't set up. LUKS: whether / sits on LUKS and its unlock tokens (tpm2, tpm2 PIN; null = unreadable), no device
+# names. Secure Boot from the EFI variable (null without EFI). Read-only apart from that file.
+# Tests: FW13_HEALTH_ROOT=<dir> (paths below it), FW13_TIMESHIFT=<cmd>.
 set -euo pipefail
 
 ROOT="${FW13_HEALTH_ROOT:-}"
@@ -30,11 +32,31 @@ if command -v "$TIMESHIFT" >/dev/null && grep -Eq '"backup_device_uuid" *: *"[^"
   fi
 fi
 
+luks=null
+src="$(findmnt -nvo SOURCE / 2>/dev/null)" || src=""
+dev="$(lsblk -nslpo NAME,FSTYPE "$src" 2>/dev/null | awk '$2 == "crypto_LUKS" {print $1; exit}')" || dev=""
+if [[ -n $dev ]]; then
+  tpm=null pin=null
+  if meta="$(cryptsetup luksDump --dump-json-metadata "$dev" 2>/dev/null)"; then
+    tpm=false pin=false
+    if grep -q '"systemd-tpm2"' <<<"$meta"; then tpm=true; fi
+    if grep -Eq '"tpm2-pin" *: *true' <<<"$meta"; then pin=true; fi
+  fi
+  luks="{\"tpm2\": $tpm, \"pin\": $pin}"
+fi
+
+sb=null
+for f in "$ROOT"/sys/firmware/efi/efivars/SecureBoot-*; do
+  [[ -r $f ]] || continue
+  # 4 attribute bytes, then the value: 1 = on
+  if [[ "$(od -An -tu1 -j4 -N1 "$f" | tr -d ' ')" == 1 ]]; then sb=true; else sb=false; fi
+done
+
 install -d -m 0755 "$(dirname "$OUT")"
 tmp="$(mktemp "$OUT.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
-printf '{"version": 1, "generated": %d, "timeshift": {"state": "%s", "snapshots": %d, "newest": %d}}\n' \
-  "$(date +%s)" "$ts_state" "$ts_count" "$ts_newest" > "$tmp"
+printf '{"version": 1, "generated": %d, "timeshift": {"state": "%s", "snapshots": %d, "newest": %d}, "luks": %s, "secure_boot": %s}\n' \
+  "$(date +%s)" "$ts_state" "$ts_count" "$ts_newest" "$luks" "$sb" > "$tmp"
 chmod 0644 "$tmp"
 mv -f "$tmp" "$OUT"
 trap - EXIT

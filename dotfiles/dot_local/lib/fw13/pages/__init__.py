@@ -11,6 +11,7 @@ PAGES = [
     ("appearance", "", "Appearance", "appearance"),
     ("input",      "", "Input",      "input"),
     ("jarvis",     "", "Jarvis",     "jarvis"),
+    ("security",   "", "Security",   "security"),
     ("system",     "", "System",     "system"),
     ("fw13",       "", "My Framework", "fw13"),
 ]
