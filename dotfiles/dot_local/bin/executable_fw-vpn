@@ -16,8 +16,9 @@ conn() {
   return 1
 }
 
-# charon installs the tunnel's routes in table 220, which is readable without root: none = down
-routes() { ip -4 route show table 220 2>/dev/null | awk '{ print $1 }' | paste -sd ' '; }
+# charon installs the tunnel's routes in table 220, which is readable without root: none = down.
+# Before the first connect since boot the table doesn't exist and `ip` exits 2, which pipefail would turn fatal.
+routes() { { ip -4 route show table 220 2>/dev/null || true; } | awk '{ print $1 }' | paste -sd ' '; }
 
 case ${1:-} in
   --bar)
