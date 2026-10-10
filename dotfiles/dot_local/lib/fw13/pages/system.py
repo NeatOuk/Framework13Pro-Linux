@@ -1,4 +1,4 @@
-"""System: date & time, time zone, device name, firmware updates (fwupd), About this laptop."""
+"""System: date & time, time zone, device name, software updates (dnf), firmware updates (fwupd), About this laptop."""
 import os
 import threading
 
@@ -42,12 +42,14 @@ class SystemPage(Page):
         self.busy = set()     # pending "tz" / "ntp" / "host" actions (e.g. waiting on polkit)
         self.notes = {}       # last result message per action
         self.fw = None        # (updates, message) from the last check; None = checking
+        self.pk = None        # (count, message) from dnf's cache; None = checking
         self.clock = None
         self.connect("map", lambda _w: self.start_clock())
         self.connect("unmap", lambda _w: self.stop_clock())
         bg(system.timezones, self.got_zones, fail=lambda _e: [])
         bg(system.about, self.got_about, fail=lambda _e: [])
         self.render()
+        self.check_packages()
         self.check_firmware()
         self.reload()
 
@@ -85,6 +87,11 @@ class SystemPage(Page):
             self.add_widget(label("Loading…", "dim"))
         else:
             self.render_host()
+
+        self.heading("Software updates")
+        self.pk_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.add_widget(self.pk_box)
+        self.render_packages()
 
         self.heading("Firmware updates")
         self.fw_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -274,6 +281,39 @@ class SystemPage(Page):
 
     def done_hostname(self, res):
         self.finish("host", res, "Saved")
+
+    # --- software updates ---
+
+    def check_packages(self):
+        self.pk = None
+        self.render_packages()
+        bg(system.package_updates, self.got_packages, fail=lambda e: (None, str(e)))
+
+    def got_packages(self, res):
+        self.pk = res
+        self.render_packages()
+
+    def render_packages(self):
+        for c in self.pk_box.get_children():
+            self.pk_box.remove(c)
+        check = Gtk.Button(label="  Check now")
+        check.connect("clicked", lambda _b: self.check_packages())
+        buttons = self.hbox(check)
+        if self.pk is None:
+            check.set_sensitive(False)
+            self.pk_box.pack_start(label("Checking for updates…", "dim"), False, False, 0)
+        else:
+            count, msg = self.pk
+            self.pk_box.pack_start(label(msg, "ok" if count == 0 else "dim", wrap=True), False, False, 0)
+            if count:
+                self.pk_box.pack_start(label("A Timeshift snapshot is taken first; the terminal asks for your "
+                                             "password.", "dim", wrap=True), False, False, 0)
+                upd = Gtk.Button(label="Snapshot + update…")
+                upd.get_style_context().add_class("primary")
+                upd.connect("clicked", lambda _b: launch("fw-term", "--hold", "-e", "fw-updates", "apply"))
+                buttons.pack_start(upd, False, False, 0)
+        self.pk_box.pack_start(buttons, False, False, 0)
+        self.pk_box.show_all()
 
     # --- firmware ---
 

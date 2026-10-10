@@ -1,0 +1,12 @@
+[Unit]
+Description=Software update check (fw-updates)
+
+[Timer]
+# 20 min after login (Hyprland is up, so the notification can show), then every 24 h while logged in.
+# Reads dnf's cache only; dnf-makecache.timer refreshes it.
+OnStartupSec=20min
+OnUnitActiveSec=1d
+AccuracySec=5min
+
+[Install]
+WantedBy=timers.target

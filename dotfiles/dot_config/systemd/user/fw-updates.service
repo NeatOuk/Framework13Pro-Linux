@@ -1,0 +1,9 @@
+[Unit]
+Description=Software update check (notifies in Hyprland; Update now = Timeshift snapshot + dnf upgrade)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fw-updates --check
+Nice=10
+# a notification waits up to 10 min for Update now
+TimeoutStartSec=15min

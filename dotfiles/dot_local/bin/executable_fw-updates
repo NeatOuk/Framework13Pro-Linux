@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Software updates with a Timeshift snapshot first.
+
+  fw-updates --check   count pending dnf updates from the local cache (no root, no network: dnf-makecache.timer
+                       keeps it fresh) and print it; in Hyprland, notify "N updates" (Update now / Later) when the
+                       count changed or a day after the last notice. What fw-updates.timer runs.
+  fw-updates run       open `fw-updates apply` in a terminal
+  fw-updates apply     in a terminal: Timeshift snapshot (fw-timeshift-setup if Timeshift isn't set up yet; a failed
+                       snapshot stops here unless you type y), then dnf upgrade --refresh, flatpak update --user, and
+                       whether a reboot is needed.
+State: ~/.local/state/fw13/updates.json
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import notify, system  # noqa: E402
+
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "fw13", "updates.json")
+DAY = 86400
+APPLY = ["fw-term", "--hold", "-e", "fw-updates", "apply"]
+
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(state):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=os.path.dirname(STATE))
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f)
+        os.replace(tmp, STATE)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def check():
+    n, msg = system.package_updates()
+    print(msg)
+    if n is None:
+        return 1
+    state, now = load_state(), time.time()
+    if n == 0:
+        if state.pop("notified", None) is not None:  # up to date: the next update notifies at once
+            write_state(state)
+        return 0
+    if n == state.get("notified") and now - state.get("notified_at", 0) < DAY:
+        return 0
+    if not (notify.in_hyprland() and notify.available()):
+        return 0  # state unchanged, so the next run notifies
+    nid = notify.send("fw-updates", f"{n} software update{'s' if n > 1 else ''}",
+                      "A Timeshift snapshot is taken before updating.",
+                      [("default", "Update now"), ("update", "Update now"), ("later", "Later")],
+                      icon="software-update-available", timeout=30000)
+    if nid is None:
+        return 0
+    state.update(notified=n, notified_at=now)
+    write_state(state)
+    if notify.wait(nid, limit=600) in ("default", "update"):
+        notify.launch(APPLY)
+    return 0
+
+
+def sudo(*cmd):
+    try:
+        return subprocess.run(["sudo", *cmd]).returncode
+    except OSError as e:
+        print(e)
+        return 127
+
+
+def apply():
+    if sudo("-v") != 0:
+        return 1
+    if os.path.exists("/etc/timeshift/timeshift.json"):
+        print("\n== Timeshift snapshot ==")
+        rc = sudo("timeshift", "--create", "--comments", f"before dnf upgrade {time.strftime('%F')}", "--scripted")
+    else:
+        print("\n== Timeshift isn't set up yet: fw-timeshift-setup (makes the first snapshot) ==")
+        rc = sudo("fw-timeshift-setup")
+    if rc != 0:
+        answer = input(f"\nThe snapshot failed (exit {rc}). Update anyway, without a snapshot? [y/N] ")
+        if answer.strip().lower() != "y":
+            print("Not updating.")
+            return 1
+    print("\n== dnf upgrade ==")
+    failed = sudo("dnf", "upgrade", "--refresh") != 0
+    if shutil.which("flatpak"):
+        print("\n== flatpak update (user) ==")
+        failed |= subprocess.run(["flatpak", "update", "--user", "-y"]).returncode != 0
+    rc = subprocess.run(["dnf5", "-q", "--disablerepo=*", "needs-restarting", "-r"], capture_output=True).returncode
+    print("\nA reboot is needed to finish the update." if rc == 1 else "\nNo reboot needed.")
+    return 1 if failed else 0
+
+
+def main(argv):
+    mode = argv[0] if argv else ""
+    if mode == "--check":
+        return check()
+    if mode == "run":
+        notify.launch(APPLY)
+        return 0
+    if mode == "apply":
+        return apply()
+    print("usage: fw-updates --check | run | apply", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

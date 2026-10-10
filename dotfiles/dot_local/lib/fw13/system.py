@@ -1,4 +1,4 @@
-"""Date & time (timedatectl), device name (hostnamectl), firmware updates (fwupdmgr) and About facts.
+"""Date & time (timedatectl), device name (hostnamectl), package updates (dnf5), firmware updates (fwupdmgr) and About facts.
 
 Setters go through systemd's D-Bus services, so the running polkit agent asks for the password — no sudo.
 All of these may block (polkit prompt, LVFS lookups): call them from a worker thread.
@@ -77,6 +77,21 @@ def set_hostname(name):
     if not valid_hostname(name):
         return False, "Use letters, digits and hyphens (1-63, not starting or ending with a hyphen)"
     return _err(*_run("hostnamectl", "set-hostname", name)[0::2], "Renaming")
+
+
+# --- software updates --------------------------------------------------------
+
+def package_updates():
+    """(count, message); count None when the check failed. Read-only and offline: `dnf5 --cacheonly
+    check-upgrade` (exit 100 = updates) on the cache dnf-makecache.timer keeps fresh."""
+    rc, out, err = _run("dnf5", "-q", "--cacheonly", "check-upgrade", timeout=120)
+    if rc == 0:
+        return 0, "Everything is up to date"
+    if rc != 100:
+        return None, _err(rc, err, "Checking for updates")[1]
+    # package lines are "name.arch  version  repo" at column 0; headers have one word, obsoleted lines are indented
+    n = sum(1 for line in out.splitlines() if line[:1].strip() and len(line.split()) == 3)
+    return n, f"{n} package update{'s' if n != 1 else ''}"
 
 
 # --- firmware ----------------------------------------------------------------
