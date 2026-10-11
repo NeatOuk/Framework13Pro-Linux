@@ -54,6 +54,11 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
                            NoDisplay copies in ~/.local/share/fw13/hyprland/applications (our own fw-calc/fw-emoji entries there carry no marker and are left alone), on XDG_DATA_DIRS for Hyprland only (uwsm/env-hyprland;
                            fuzzel ignores NotShowIn/OnlyShowIn); defaults in ~/.config/hyprland-mimeapps.list: Thunar, Chromium, GNOME viewers;
                            types the user set in mimeapps.list are left out)
+                           nightlight (hyprsunset on/switch + schedule: store `nightlight_schedule` off/sun/custom, `nightlight_from`/`nightlight_to`;
+                           Settings → Display → Schedule; `python3 -m fw13.nightlight tick` from fw-nightlight.timer every 5 min acts only at a
+                           change-over (store `nightlight_applied` {session, on}), so SUPER+N wins until the next one; a new Hyprland session applies
+                           it once; during Zen the change-over goes into `profile_saved`; sun = weather.sun_today() (sunrise/sunset in the same
+                           forecast request), 19:00/06:30 without a city or offline; `python3 -m fw13.nightlight test` self-check),
                            weather (Open-Meteo via urllib: geocoding-api once per city → store `weather_place`, forecast cached
                            30 min in ~/.cache/fw13/weather.json, stale = last value dimmed; store `weather_city`/`weather_units`;
                            Settings → System → Weather),

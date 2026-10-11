@@ -1,0 +1,9 @@
+[Unit]
+Description=Night light schedule (Settings → Display → Schedule; switches hyprsunset at sunset/sunrise or custom times)
+
+[Service]
+Type=oneshot
+Environment=PYTHONPATH=%h/.local/lib
+# does nothing outside Hyprland (no HYPRLAND_INSTANCE_SIGNATURE) or with the schedule off
+ExecStart=/usr/bin/python3 -m fw13.nightlight tick
+Nice=10

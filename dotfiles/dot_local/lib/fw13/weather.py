@@ -62,10 +62,15 @@ def geocode(city):
 def forecast(place, units):
     d = _get(FORECAST, {"latitude": place["lat"], "longitude": place["lon"], "timezone": "auto", "forecast_days": 3,
                         "current": "temperature_2m,weather_code,is_day",
-                        "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+                        "daily": "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset",
                         "temperature_unit": "fahrenheit" if units == "f" else "celsius"})
     c, dl = d["current"], d["daily"]
-    return {"temp": round(c["temperature_2m"]), "code": int(c["weather_code"]), "day": bool(c.get("is_day", 1)),
+    tz = datetime.timezone(datetime.timedelta(seconds=d.get("utc_offset_seconds", 0)))  # times are the place's
+
+    def epoch(t):
+        return int(datetime.datetime.fromisoformat(t).replace(tzinfo=tz).timestamp())
+    return {"sun": [[t, epoch(r), epoch(s)] for t, r, s in zip(dl["time"], dl["sunrise"], dl["sunset"])],
+            "temp": round(c["temperature_2m"]), "code": int(c["weather_code"]), "day": bool(c.get("is_day", 1)),
             "days": [{"date": t, "code": int(w), "max": round(hi), "min": round(lo)} for t, w, hi, lo in
                      zip(dl["time"], dl["weather_code"], dl["temperature_2m_max"], dl["temperature_2m_min"])]}
 
@@ -109,22 +114,44 @@ def _write_cache(data):
     os.replace(tmp, CACHE)
 
 
+def cached():
+    """(cache, stale): the forecast cache, fetched again when older than MAX_AGE, the place or units changed, or it
+    predates sunrise/sunset; stale = offline or an error, so the last cache. cache is None when the city isn't found."""
+    units = "f" if store.get("weather_units") == "f" else "c"
+    cache = _read_cache()
+    try:
+        p = place()
+        if p is None:
+            return None, False
+        key = f"{p['lat']},{p['lon']},{units}"
+        if (cache.get("key") != key or time.time() - cache.get("time", 0) > MAX_AGE
+                or "sun" not in cache.get("data", {})):
+            cache = {"key": key, "time": time.time(), "label": p["label"], "units": units, "data": forecast(p, units)}
+            _write_cache(cache)
+    except (OSError, ValueError, KeyError, TypeError):  # offline, HTTP error or an unexpected answer: last value
+        return cache, True
+    return cache, False
+
+
+def sun_today():
+    """(sunset, sunrise) of today as epoch seconds from the forecast; None without a city or data (offline)."""
+    if not city():
+        return None
+    cache, _ = cached()
+    today = datetime.date.today().isoformat()
+    for day, rise, sset in ((cache or {}).get("data") or {}).get("sun", []):
+        if day == today:
+            return sset, rise
+    return None
+
+
 def bar():
     """Waybar JSON: icon + temperature; {"text": ""} (hidden) without a city."""
     if not city():
         return {"text": ""}
-    units = "f" if store.get("weather_units") == "f" else "c"
-    cache, stale = _read_cache(), False
-    try:
-        p = place()
-        if p is None:
-            return {"text": " ?", "class": "stale", "tooltip": "City not found: check Settings → System → Weather"}
-        key = f"{p['lat']},{p['lon']},{units}"
-        if cache.get("key") != key or time.time() - cache.get("time", 0) > MAX_AGE:
-            cache = {"key": key, "time": time.time(), "label": p["label"], "units": units, "data": forecast(p, units)}
-            _write_cache(cache)
-    except (OSError, ValueError, KeyError, TypeError):  # offline, HTTP error or an unexpected answer: last value
-        stale = True
+    cache, stale = cached()
+    if cache is None:
+        return {"text": " ?", "class": "stale", "tooltip": "City not found: check Settings → System → Weather"}
     w = cache.get("data")
     if not w:
         return {"text": "", "tooltip": "Weather: no data yet (offline?)"}

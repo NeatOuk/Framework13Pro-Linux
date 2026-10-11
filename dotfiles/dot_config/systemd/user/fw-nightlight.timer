@@ -1,0 +1,10 @@
+[Unit]
+Description=Night light schedule check (fw-nightlight.service)
+
+[Timer]
+# every 5 min: acts only at a change-over (or once in a new Hyprland session), so SUPER+N wins until the next one
+OnCalendar=*:0/5
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
