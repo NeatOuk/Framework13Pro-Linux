@@ -60,6 +60,9 @@ TYPES = ("scheme-tonal-spot", "scheme-content", "scheme-expressive", "scheme-vib
          "scheme-monochrome", "scheme-fidelity", "scheme-rainbow", "scheme-fruit-salad")
 DEFAULT_TYPE = "scheme-tonal-spot"
 
+# The Linux console's default VGA black and grey: what tuigreet (no --theme) shows on the login screen; hyprlock copies it
+TTY = {"bg": "#000000", "fg": "#aaaaaa"}
+
 TOKYO_NIGHT = {
     "bg": "#1a1b26", "bg_dim": "#16161e",
     "surface": "#1f2335", "surface2": "#292e42", "surface3": "#3b4261",
@@ -485,7 +488,9 @@ def render(p):
                 f"$fw_text = rgba({_a(p['fg_bright'])})\n"
                 f"$fw_check = rgba({_a(p['ok'])})\n"
                 f"$fw_fail = rgba({_a(p['bad'])})\n"
-                f"$fw_clock = rgba({_a(p['fg'])})\n")
+                f"$fw_clock = rgba({_a(p['fg'])})\n"
+                f"$fw_tty_bg = rgba({_a(TTY['bg'])})\n"
+                f"$fw_tty_fg = rgba({_a(TTY['fg'])})\n")
     return {"hypr.lua": hypr, "waybar.css": waybar, "fuzzel.ini": fuzzel, "mako": mako,
             "kitty.conf": "\n".join(kitty) + "\n", "ghostty": "\n".join(ghostty) + "\n", "hyprlock.conf": hyprlock,
             "gtk3.css": _gtk_css(p, variables=False), "gtk4.css": _gtk_css(p, variables=True),
@@ -647,7 +652,7 @@ def _atomic_user(path, text):
 # Lines a generated file must hold; one of ours (HEAD on top) written before a line was added is rewritten by
 # ensure_files() (written only on a palette change otherwise, so an existing install would never get it).
 REQUIRED = {"mako": ("progress-color=", "font="), "fuzzel.ini": ("font=",), "waybar.css": ("font-family",),
-            "hyprlock.conf": ("$fw_font",)}
+            "hyprlock.conf": ("$fw_font", "$fw_tty_bg")}
 
 
 def _outdated(name):
