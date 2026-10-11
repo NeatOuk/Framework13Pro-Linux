@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Keep awake (bar custom/caffeine, signal 16, left of the profile; SUPER+SHIFT+K).
+
+  fw-caffeine           toggle
+  fw-caffeine on|off
+  fw-caffeine --bar     waybar JSON (interval 60: also turns it off on battery below 20 %, with a notification)
+  fw-caffeine test      self-check
+
+On = a `systemd-inhibit --what=idle:sleep` process (pid in $XDG_RUNTIME_DIR/fw-caffeine.pid, its mtime = since):
+hypridle skips its dim/lock/screen-off listeners while a logind idle lock is held, and logind refuses to suspend.
+Closing the lid still suspends (handle-lid-switch isn't held). The lock ends with the process, so a new login is off.
+"""
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+
+SIGNAL = 16
+CUP = ""  # Font Awesome mug-saucer
+LOW = 20
+PIDFILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}", "fw-caffeine.pid")
+WHO = "--who=fw-caffeine"
+
+
+def pid():
+    """The inhibitor's pid, or None (checked against /proc so a stale pidfile never kills something else)."""
+    try:
+        p = int(open(PIDFILE).read().strip())
+        cmd = open(f"/proc/{p}/cmdline", "rb").read().split(b"\0")
+    except (OSError, ValueError):
+        return None
+    return p if cmd[0].endswith(b"systemd-inhibit") and WHO.encode() in cmd else None
+
+
+def on():
+    if pid():
+        return
+    p = subprocess.Popen(["systemd-inhibit", "--what=idle:sleep", WHO, "--why=Keep awake (bar coffee cup)",
+                          "--mode=block", "sleep", "infinity"],
+                         start_new_session=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    with open(PIDFILE, "w") as f:
+        f.write(f"{p.pid}\n")
+
+
+def off():
+    p = pid()
+    if p:
+        os.kill(p, signal.SIGTERM)
+    try:
+        os.remove(PIDFILE)
+    except FileNotFoundError:
+        pass
+
+
+def refresh():
+    subprocess.run(["pkill", f"-RTMIN+{SIGNAL}", "-x", "waybar"], check=False)
+
+
+def should_stop(pct, on_battery):
+    return bool(on_battery) and pct is not None and pct < LOW
+
+
+def battery_low():
+    """(True, percent) when on battery below LOW %; no battery / no UPower → (False, None)."""
+    from fw13 import power
+    from gi.repository import GLib
+    b = power.battery()
+    ob = power._call(power.UP, "/org/freedesktop/UPower", "org.freedesktop.DBus.Properties", "Get",
+                     GLib.Variant("(ss)", (power.UP, "OnBattery")), "(v)")
+    pct = b.get("Percentage") if b else None
+    return should_stop(pct, ob and ob[0]), pct
+
+
+def bar():
+    if pid():
+        low, pct = battery_low()
+        if low:
+            off()
+            from fw13 import notify
+            notify.send("fw-caffeine", "Keep awake turned off",
+                        f"Battery at {round(pct)} %: the screen can dim, lock and sleep again.", icon="battery-low")
+    if not pid():
+        print(json.dumps({"text": CUP, "class": "off",
+                          "tooltip": "Keep awake: off\n\nClick: keep the screen on (SUPER+SHIFT+K)"}))
+        return
+    since = time.strftime("%H:%M", time.localtime(os.path.getmtime(PIDFILE)))
+    print(json.dumps({"text": CUP, "class": "on",
+                      "tooltip": f"Keep awake: on since {since} · screen won't dim, lock or sleep\n\n"
+                                 f"Turns off on battery below {LOW} %. Click: off"}))
+
+
+def selftest():
+    assert should_stop(19, True)
+    assert not should_stop(20, True)
+    assert not should_stop(5, False)
+    assert not should_stop(None, True)
+    print("ok")
+
+
+def main(argv):
+    arg = argv[1] if len(argv) > 1 else "toggle"
+    if arg == "--bar":
+        bar()
+        return
+    if arg == "test":
+        selftest()
+        return
+    if arg == "toggle":
+        arg = "off" if pid() else "on"
+    if arg not in ("on", "off"):
+        sys.exit("usage: fw-caffeine [on|off|--bar|test]")
+    on() if arg == "on" else off()
+    refresh()
+
+
+if __name__ == "__main__":
+    main(sys.argv)

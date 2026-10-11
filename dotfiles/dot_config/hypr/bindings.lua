@@ -65,6 +65,7 @@ hl.bind("SUPER + PRINT",         exec("hyprpicker -a"), { description = "Colour 
 hl.bind("ALT + SHIFT + 4",       exec("fw-capture snip"), { description = "Snip area → edit (blur, crop)" })
 hl.bind("ALT + SHIFT + 3",       exec("fw-capture window"), { description = "Snip window → edit (blur, crop)" })
 hl.bind("SUPER + N",             exec("fw-nightlight"), { description = "Night light" })
+hl.bind("SUPER + SHIFT + K",     exec("fw-caffeine"), { description = "Keep awake (on / off)" })
 hl.bind("SUPER + comma",         exec("makoctl dismiss"), { description = "Dismiss notification" })
 hl.bind("SUPER + SHIFT + comma", exec("makoctl dismiss --all"), { description = "Dismiss all notifications" })
 hl.bind("SUPER + SHIFT + B",     exec("uwsm app -- timeshift-launcher"), { description = "Timeshift snapshots" })

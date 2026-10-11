@@ -5,7 +5,7 @@
   "height": 26,
   "spacing": 0,
   "modules-left": ["custom/menu", "custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4", "custom/ws5"],
-  "modules-center": ["custom/profile", "clock", "custom/weather", "custom/recording"],
+  "modules-center": ["custom/caffeine", "custom/profile", "clock", "custom/weather", "custom/recording"],
   "modules-right": ["tray", "bluetooth", "network", "custom/warp", "custom/vpn", "pulseaudio", "custom/display", "custom/claude", "custom/opencode", "cpu", "battery", "custom/notifications", "custom/control", "custom/power"],
 
   "custom/menu": { "format": " ", "on-click": "fw-menu-anchor launcher >/dev/null && fuzzel --anchor top-left --keyboard-focus=on-demand --no-exit-on-keyboard-focus-loss --launch-prefix='uwsm app -- '", "on-click-right": "uwsm app -- fw-term", "tooltip": false },
@@ -16,6 +16,8 @@
   "custom/ws3": { "exec": "fw-workspaces dot 3", "return-type": "json", "interval": "once", "signal": 10, "on-click": "fw-workspaces click 3" },
   "custom/ws4": { "exec": "fw-workspaces dot 4", "return-type": "json", "interval": "once", "signal": 10, "on-click": "fw-workspaces click 4" },
   "custom/ws5": { "exec": "fw-workspaces dot 5", "return-type": "json", "interval": "once", "signal": 10, "on-click": "fw-workspaces click 5" },
+  // Keep awake (fw-caffeine): systemd-inhibit idle:sleep while on (accent); off by itself on battery below 20 %; signal 16.
+  "custom/caffeine": { "exec": "fw-caffeine --bar", "return-type": "json", "interval": 60, "signal": 16, "on-click": "fw-caffeine" },
   // Profile (fw-profile): Normal (dim) / Focus = do-not-disturb / Zen = DND + no gaps or borders + night light; signal 14.
   "custom/profile": { "exec": "fw-profile --bar", "return-type": "json", "interval": "once", "signal": 14, "on-click": "FW_BAR=1 fw-profile" },
   "clock": {

@@ -12,7 +12,7 @@ window#waybar { background: @bg; color: @fg; }
 #custom-ws1.active, #custom-ws2.active, #custom-ws3.active, #custom-ws4.active, #custom-ws5.active { color: @accent; }
 #custom-ws1:hover, #custom-ws2:hover, #custom-ws3:hover, #custom-ws4:hover, #custom-ws5:hover { color: @fg; }
 #tray, #bluetooth, #network, #custom-warp, #custom-vpn, #pulseaudio, #custom-display, #custom-claude, #custom-opencode, #cpu, #battery { padding: 0 9px; }
-#custom-notifications, #custom-control, #custom-profile, #custom-weather { padding: 0 9px; }
+#custom-notifications, #custom-control, #custom-caffeine, #custom-profile, #custom-weather { padding: 0 9px; }
 #custom-power { padding: 0 14px 0 9px; color: @red; }
 #battery.warning { color: @yellow; }
 #battery.critical { color: @red; }
@@ -29,6 +29,9 @@ tooltip { background: @bg; border: 1px solid @accent; }
 /* Notification bell: accent with unread notifications, dim under do-not-disturb */
 #custom-notifications.unread { color: @accent; }
 #custom-notifications.dnd { color: @muted; }
+/* Keep awake: dim when off, accent when on */
+#custom-caffeine { color: @muted; }
+#custom-caffeine.on { color: @accent; }
 /* Profile: dim in Normal, accent in Focus / Zen */
 #custom-profile { color: @muted; }
 #custom-profile.focus, #custom-profile.zen { color: @accent; }
