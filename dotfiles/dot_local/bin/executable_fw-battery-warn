@@ -17,9 +17,10 @@ from fw13 import notify, power  # noqa: E402
 from gi.repository import Gio, GLib  # noqa: E402  (versions pinned by fw13.notify / fw13.power)
 
 APP = "fw-battery"
-# UPower's CriticalPowerAction as it reports it → what the laptop does at PercentageAction
+# UPower's critical action as GetCriticalAction reports it → what the laptop does at PercentageAction.
+# "Sleep" (Auto on UPower 1.91) is logind's Sleep(): its SleepOperation= order, suspend-then-hibernate or suspend.
 ACTIONS = {"PowerOff": "power off", "Hibernate": "hibernate", "HybridSleep": "hibernate", "Suspend": "suspend",
-           "Sleep": "suspend"}
+           "Sleep": "go to sleep (suspend, or hibernate if set up)"}
 
 
 def step(pct, on_battery, levels, warned):
