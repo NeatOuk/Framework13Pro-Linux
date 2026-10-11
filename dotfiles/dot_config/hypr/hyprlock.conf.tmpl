@@ -1,5 +1,6 @@
 # Lock screen drawn like the tuigreet login (user decision): the Linux console's black and grey ($fw_tty_*, not the
-# wallpaper palette), a box of line-drawing characters on an 8x18 cell grid (JetBrains Mono 10 pt = 8x18 px), the
+# wallpaper palette), a box on a 13x29 cell grid (JetBrains Mono 16 pt = 13x29 px; hyprlock sizes are physical pixels, so this is ~1.6x the
+# console's 8x16 to stay readable on the 2880x1920 panel), the
 # date on the top row and a key hint on the bottom row. Font + colours: written by fw13.theme
 source = ~/.config/fw13/theme/hyprlock.conf
 general {
@@ -20,7 +21,7 @@ label {
   monitor =
   text = cmd[update:1000] date '+%a, %d %b %Y - %H:%M'
   color = $fw_tty_fg
-  font_size = 10
+  font_size = 16
   font_family = $fw_font
   position = 0, 0
   halign = center
@@ -29,11 +30,11 @@ label {
 {{- /* 80 columns like tuigreet --width 80, title in the top border, container and prompt padding 1 */}}
 {{- $t := printf " Authenticate into %s " .chezmoi.hostname }}
 {{- $blank := printf "%80s" "" }}
-# the prompt box, 80x7 cells (640x126 px) centred, rows 18 px apart; the border runs through the middle of the
+# the prompt box, 80x7 cells (1040x203 px) centred, rows 29 px apart; the border runs through the middle of the
 # outer cells (a shape: line-drawing characters come out dotted at fractional scale)
 shape {
   monitor =
-  size = 632, 108
+  size = 1027, 174
   color = $fw_tty_bg
   border_size = 1
   border_color = $fw_tty_fg
@@ -45,11 +46,11 @@ shape {
 # gap in the top border for the title (column 1 onwards); the label starts with no-break spaces, hyprlock trims plain ones
 shape {
   monitor =
-  size = {{ mul 8 (len $t) }}, 6
+  size = {{ mul 13 (len $t) }}, 8
   color = $fw_tty_bg
   rounding = 0
   border_size = 0
-  position = {{ add -312 (mul 4 (len $t)) }}, 54
+  position = {{ add -507 (div (mul 13 (len $t)) 2) }}, 87
   halign = center
   valign = center
 }
@@ -57,17 +58,17 @@ label {
   monitor =
   text = {{ printf "\u00a0\u00a0Authenticate into %-60s" .chezmoi.hostname }}<br/>{{ $blank }}<br/>{{ printf "  %-78s" (print "Username: " .chezmoi.username) }}<br/>{{ $blank }}<br/>{{ printf "  %-78s" "Password:" }}<br/>{{ $blank }}<br/>{{ $blank }}
   color = $fw_tty_fg
-  font_size = 10
+  font_size = 16
   font_family = $fw_font
   position = 0, 0
   halign = center
   valign = center
 }
-# the password goes after "Password: " (row 5 of 7 = 18 px below centre, column 12 = 224 px left of centre)
+# the password goes after "Password: " (row 5 of 7 = 29 px below centre, column 12 = 364 px left of centre)
 input-field {
   monitor =
-  size = 480, 18
-  position = 16, -18
+  size = 780, 29
+  position = 26, -29
   halign = center
   valign = center
   outline_thickness = 0
@@ -92,7 +93,7 @@ label {
   monitor =
   text = ENTER Unlock  FINGERPRINT Scan the reader
   color = $fw_tty_fg
-  font_size = 10
+  font_size = 16
   font_family = $fw_font
   position = 0, 0
   halign = left
