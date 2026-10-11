@@ -5,6 +5,7 @@
 #  - fw-theme-session: GTK theme/colour scheme set at Hyprland login, handed back at logout (fw13.theme)
 #  - fw-autobrightness: ambient-light brightness (Hyprland only, off until Settings → Display turns it on)
 #  - fw-battery-warn: low-battery notifications at 20/10/5 % (Hyprland only; levels in Settings → Power)
+#  - fw-usb: USB drive notice (mount, Open in Thunar, Eject; Hyprland only)
 #  - fw-health.timer: health report 15 min after login, then daily (fw-health --timer; notifies in Hyprland only)
 #  - fw-updates.timer: dnf update check 20 min after login, then daily (fw-updates --check; Update now = snapshot first)
 #  - fw-nightlight.timer: night light schedule every 5 min (python3 -m fw13.nightlight tick; off unless Settings → Display sets one)
@@ -12,9 +13,10 @@
 systemctl --user show-environment >/dev/null 2>&1 || exit 0
 systemctl --user daemon-reload
 systemctl --user enable fw-crash-watch.service mako.service fw-theme-session.service fw-autobrightness.service \
-  fw-battery-warn.service
+  fw-battery-warn.service fw-usb.service
 systemctl --user enable --now fw-health.timer fw-updates.timer fw-nightlight.timer
 if [ -x /usr/libexec/gcr-ssh-agent ]; then systemctl --user enable --now gcr-ssh-agent.socket; fi
 systemctl --user reset-failed mako.service 2>/dev/null || true
 systemctl --user restart fw-crash-watch.service 2>/dev/null || true
 systemctl --user restart fw-battery-warn.service 2>/dev/null || true
+systemctl --user restart fw-usb.service 2>/dev/null || true

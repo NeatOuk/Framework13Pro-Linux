@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""USB drive notice (user service fw-usb, Hyprland only; GNOME/KDE mount and notify on their own).
+
+Watches UDisks2 (InterfacesAdded on its ObjectManager) for a filesystem on a removable/USB drive, mounts it
+(UDisks2 Filesystem.Mount = `udisksctl mount`; polkit allows it for the active local session) unless something
+else already did, and notifies 'USB drive "LABEL" (32 GB)' with Open (Thunar) and Eject (unmount every mounted
+filesystem of that drive, then power it off → "Safe to unplug"). Drives present at login are left alone.
+  fw-usb            run
+  fw-usb enabled    exit 0 when the service should run (Hyprland)
+  fw-usb check      list the filesystems that would trigger now (none on a laptop with nothing plugged in)
+  fw-usb test       self-check of the filter
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import notify  # noqa: E402
+from gi.repository import Gio, GLib  # noqa: E402  (versions pinned by fw13.notify)
+
+APP = "fw-usb"
+UD = "org.freedesktop.UDisks2"
+BLOCK, FS, DRIVE = UD + ".Block", UD + ".Filesystem", UD + ".Drive"
+
+
+def wanted(block, drive):
+    """A user filesystem on a removable or USB drive: not the internal disk, loop/zram (Drive "/") or ignored."""
+    if not block or not drive or block.get("Drive", "/") == "/":
+        return False
+    if block.get("IdUsage") != "filesystem" or block.get("HintIgnore") or block.get("HintSystem", True):
+        return False
+    return bool(drive.get("Removable") or drive.get("Ejectable") or drive.get("ConnectionBus") in ("usb", "sdio"))
+
+
+def mounts(fs):
+    return [bytes(m).rstrip(b"\0").decode(errors="replace") for m in (fs or {}).get("MountPoints", [])]
+
+
+def title(block, drive):
+    name = block.get("IdLabel") or " ".join(filter(None, (drive.get("Vendor"), drive.get("Model")))) or "drive"
+    return f'USB drive "{name}" ({GLib.format_size(block.get("Size", 0))})'
+
+
+class Watcher:
+    def __init__(self):
+        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        self.session = Gio.bus_get_sync(Gio.BusType.SESSION)
+        self.pending = {}  # notification id → (block path, title)
+        self.bus.signal_subscribe(UD, "org.freedesktop.DBus.ObjectManager", "InterfacesAdded", "/org/freedesktop/UDisks2",
+                                  None, Gio.DBusSignalFlags.NONE, self.on_added)
+        notify.on_action(self.session, self.on_action)
+
+    def call(self, path, iface, method, args=None, timeout=30000):
+        return self.bus.call_sync(UD, path, iface, method, args, None, Gio.DBusCallFlags.NONE, timeout, None).unpack()
+
+    def props(self, path, iface):
+        try:
+            return self.call(path, "org.freedesktop.DBus.Properties", "GetAll", GLib.Variant("(s)", (iface,)), 5000)[0]
+        except GLib.Error:
+            return {}
+
+    def on_added(self, _c, _s, _p, _i, _sig, params):
+        path, ifaces = params.unpack()
+        if FS not in ifaces:
+            return
+        block = self.props(path, BLOCK)
+        drive = self.props(block.get("Drive", "/"), DRIVE) if block.get("Drive", "/") != "/" else {}
+        if not wanted(block, drive):
+            return
+        where = mounts(self.props(path, FS))
+        if not where:
+            try:
+                where = [self.call(path, FS, "Mount", GLib.Variant("(a{sv})", ({},)))[0]]
+            except GLib.Error as e:
+                where = mounts(self.props(path, FS))  # Thunar/gvfs may have won the race
+                if not where:
+                    Gio.DBusError.strip_remote_error(e)
+                    notify.send(APP, title(block, drive), f"Could not mount it: {e.message}", bus=self.session)
+                    return
+        name = title(block, drive)
+        nid = notify.send(APP, name, where[0], [("default", "Open"), ("open", "Open"), ("eject", "Eject")],
+                          icon="drive-removable-media", bus=self.session)
+        if nid is not None:
+            self.pending[nid] = (path, name, where[0])
+            while len(self.pending) > 20:  # dismissed ones are never reported back reliably; keep it bounded
+                self.pending.pop(next(iter(self.pending)))
+
+    def on_action(self, nid, action):
+        item = self.pending.pop(nid, None)
+        if not item:
+            return
+        path, name, where = item
+        if action in ("default", "open"):
+            notify.launch(["thunar", where])
+        elif action == "eject":
+            self.eject(path, name)
+
+    def eject(self, path, name):
+        drive = self.props(path, BLOCK).get("Drive", "/")
+        try:
+            objs = self.call("/org/freedesktop/UDisks2", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects",
+                             timeout=5000)[0]
+            for p, ifs in objs.items():
+                if ifs.get(BLOCK, {}).get("Drive") == drive and mounts(ifs.get(FS)):
+                    self.call(p, FS, "Unmount", GLib.Variant("(a{sv})", ({},)))
+            if self.props(drive, DRIVE).get("CanPowerOff"):
+                self.call(drive, DRIVE, "PowerOff", GLib.Variant("(a{sv})", ({},)))
+        except GLib.Error as e:
+            Gio.DBusError.strip_remote_error(e)
+            notify.send(APP, f"Could not eject {name}", e.message,
+                        urgency=notify.CRITICAL, icon="dialog-warning", bus=self.session)
+            return
+        notify.send(APP, "Safe to unplug", name, icon="drive-removable-media", bus=self.session)
+
+
+def check():
+    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    objs = bus.call_sync(UD, "/org/freedesktop/UDisks2", "org.freedesktop.DBus.ObjectManager", "GetManagedObjects",
+                         None, None, Gio.DBusCallFlags.NONE, 5000, None).unpack()[0]
+    hits = [p for p, ifs in objs.items()
+            if FS in ifs and wanted(ifs.get(BLOCK), objs.get(ifs[BLOCK].get("Drive"), {}).get(DRIVE))]
+    for p in hits:
+        print(p, title(objs[p][BLOCK], objs[objs[p][BLOCK]["Drive"]][DRIVE]), mounts(objs[p][FS]))
+    print(f"{len(hits)} filesystem(s) would trigger")
+
+
+def selftest():
+    stick = {"Drive": "/d/usb", "IdUsage": "filesystem", "IdLabel": "STICK", "HintIgnore": False, "HintSystem": False,
+             "Size": 32_000_000_000}
+    usb = {"Removable": True, "Ejectable": True, "ConnectionBus": "usb"}
+    assert wanted(stick, usb)
+    assert wanted(stick, {"Removable": False, "Ejectable": False, "ConnectionBus": "usb"})  # USB SSD
+    nvme = {"Removable": False, "Ejectable": False, "ConnectionBus": ""}
+    assert not wanted({**stick, "HintSystem": True}, nvme)                    # internal NVMe partition
+    assert not wanted({**stick, "HintSystem": False}, nvme)                   # not removable, not USB
+    assert not wanted({**stick, "Drive": "/", "IdType": "btrfs"}, {})          # unlocked LUKS / loop
+    assert not wanted({**stick, "Drive": "/", "IdUsage": "other"}, {})         # zram swap
+    assert not wanted({**stick, "HintIgnore": True}, usb)
+    assert not wanted({**stick, "IdUsage": "crypto"}, usb)                    # shortcut: encrypted sticks are skipped
+    assert not wanted({k: v for k, v in stick.items() if k != "HintSystem"}, usb)
+    assert title(stick, usb) == 'USB drive "STICK" (32.0\u00a0GB)'
+    assert title({**stick, "IdLabel": ""}, {"Vendor": "SanDisk", "Model": "Ultra"}).startswith('USB drive "SanDisk Ultra"')
+    assert mounts({"MountPoints": [b"/run/media/neat/STICK\0"]}) == ["/run/media/neat/STICK"]
+    assert mounts({}) == []
+    print("ok")
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
+    if cmd == "test":
+        selftest()
+    elif cmd == "check":
+        check()
+    elif cmd == "enabled":
+        sys.exit(0 if notify.in_hyprland() else 1)
+    else:
+        Watcher()
+        GLib.MainLoop().run()

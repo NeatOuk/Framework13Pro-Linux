@@ -1,0 +1,14 @@
+[Unit]
+Description=fw13 USB drive notice: mount, Open, Eject (Hyprland only)
+# The condition skips it (no failure) outside Hyprland: GNOME/KDE mount and notify on their own.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecCondition=%h/.local/bin/fw-usb enabled
+ExecStart=%h/.local/bin/fw-usb
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
