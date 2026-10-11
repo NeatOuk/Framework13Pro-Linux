@@ -34,6 +34,7 @@ hl.bind("SUPER + SHIFT + S", hl.dsp.window.move({ workspace = "special:scratchpa
 hl.bind("SUPER + L",         exec("loginctl lock-session"), { description = "Lock screen" })
 hl.bind("SUPER + ESCAPE",    exec("fw-system-menu"), { description = "Power menu" })
 hl.bind("SUPER + slash",     exec("fw-keys"), { description = "Keyboard shortcuts (this list)" })
+hl.bind("SUPER + K",         exec("fw-keys"), { description = "Keyboard shortcuts (this list)" })
 
 -- Focus / move / resize
 local dirs = { left = { -50, 0 }, right = { 50, 0 }, up = { 0, -50 }, down = { 0, 50 } }

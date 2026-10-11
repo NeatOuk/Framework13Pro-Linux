@@ -112,7 +112,7 @@ For an off-laptop copy, **restic** backs up your home folder daily (user systemd
 | Alt+Shift+4 / Alt+Shift+3 | Snip a region / click a window → annotate in swappy (Ctrl+C copies, Ctrl+S saves to ~/Pictures/Screenshots) |
 | SUPER+N | Night light |
 | SUPER+W | Wallpaper picker |
-| SUPER+/ | Keyboard shortcuts cheat sheet (searchable; also lists your own binds in `hypr/local.lua` that have a `description`) |
+| SUPER+K or SUPER+/ | Keyboard shortcuts cheat sheet (searchable; also lists your own binds in `hypr/local.lua` that have a `description`) |
 | SUPER+. / SUPER+= | Emoji picker (pasted into the window you were in) / calculator (Enter copies the result) |
 | SUPER+, (+Shift) | Dismiss notification (all) |
 | Ctrl+Space | Switch to/from Khmer (fcitx5) |
