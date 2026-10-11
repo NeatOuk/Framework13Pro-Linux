@@ -2,12 +2,13 @@
 """Software updates with a Timeshift snapshot first.
 
   fw-updates --check   count pending dnf updates from the local cache (no root, no network: dnf-makecache.timer
-                       keeps it fresh) and print it; in Hyprland, notify "N updates" (Update now / Later) when the
+                       keeps it fresh) and fwupd firmware updates (fwupdmgr get-updates, metadata from
+                       fwupd-refresh.timer) and print them; in Hyprland, notify (Update now / Later) when either
                        count changed or a day after the last notice. What fw-updates.timer runs.
   fw-updates run       open `fw-updates apply` in a terminal
   fw-updates apply     in a terminal: Timeshift snapshot (fw-timeshift-setup if Timeshift isn't set up yet; a failed
                        snapshot stops here unless you type y), then dnf upgrade --refresh, flatpak update --user, and
-                       whether a reboot is needed.
+                       whether a reboot is needed; firmware is left to Settings → System → Firmware updates.
 State: ~/.local/state/fw13/updates.json
 """
 import json
@@ -24,6 +25,7 @@ from fw13 import notify, system  # noqa: E402
 STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "fw13", "updates.json")
 DAY = 86400
 APPLY = ["fw-term", "--hold", "-e", "fw-updates", "apply"]
+FIRMWARE_PAGE = ["fw-settings", "system"]
 
 
 def load_state():
@@ -47,30 +49,57 @@ def write_state(state):
             os.unlink(tmp)
 
 
+def firmware():
+    """Pending fwupd updates ([] without fwupd or when the check failed: firmware never blocks the dnf notice)."""
+    return system.firmware_updates()[0] if shutil.which("fwupdmgr") else []
+
+
+def plural(n, word):
+    return f"{n} {word}{'s' if n != 1 else ''}"
+
+
+def summary(n, fw):
+    """"33 package updates · 1 firmware update (Fingerprint Sensor 01000334)"; parts with 0 left out."""
+    parts = [plural(n, "package update")] if n else []
+    if fw:
+        parts.append(plural(len(fw), "firmware update") + " (" + ", ".join(f"{u['device']} {u['new']}" for u in fw) + ")")
+    return " · ".join(parts) or "Everything is up to date"
+
+
 def check():
     n, msg = system.package_updates()
-    print(msg)
     if n is None:
+        print(msg)
         return 1
+    fw = firmware()
+    print(summary(n, fw))
     state, now = load_state(), time.time()
-    if n == 0:
+    if n == 0 and not fw:
         if state.pop("notified", None) is not None:  # up to date: the next update notifies at once
+            state.pop("notified_fw", None)
             write_state(state)
         return 0
-    if n == state.get("notified") and now - state.get("notified_at", 0) < DAY:
+    same = (n, len(fw)) == (state.get("notified"), state.get("notified_fw", 0))
+    if same and now - state.get("notified_at", 0) < DAY:
         return 0
     if not (notify.in_hyprland() and notify.available()):
         return 0  # state unchanged, so the next run notifies
-    nid = notify.send("fw-updates", f"{n} software update{'s' if n > 1 else ''}",
-                      "A Timeshift snapshot is taken before updating.",
-                      [("default", "Update now"), ("update", "Update now"), ("later", "Later")],
-                      icon="software-update-available", timeout=30000)
+    if n:
+        body = "A Timeshift snapshot is taken before updating."
+        if fw:
+            body += " Firmware: Settings → System → Firmware updates."
+        actions = [("default", "Update now"), ("update", "Update now"), ("later", "Later")]
+    else:
+        body = "Installed from Settings → System → Firmware updates (needs AC power and a reboot)."
+        actions = [("default", "Open Settings"), ("firmware", "Open Settings"), ("later", "Later")]
+    nid = notify.send("fw-updates", summary(n, fw), body, actions, icon="software-update-available", timeout=30000)
     if nid is None:
         return 0
-    state.update(notified=n, notified_at=now)
+    state.update(notified=n, notified_fw=len(fw), notified_at=now)
     write_state(state)
-    if notify.wait(nid, limit=600) in ("default", "update"):
-        notify.launch(APPLY)
+    action = notify.wait(nid, limit=600)
+    if action in ("default", "update", "firmware"):
+        notify.launch(APPLY if n else FIRMWARE_PAGE)
     return 0
 
 
@@ -103,7 +132,21 @@ def apply():
         failed |= subprocess.run(["flatpak", "update", "--user", "-y"]).returncode != 0
     rc = subprocess.run(["dnf5", "-q", "--disablerepo=*", "needs-restarting", "-r"], capture_output=True).returncode
     print("\nA reboot is needed to finish the update." if rc == 1 else "\nNo reboot needed.")
+    fw = firmware()
+    if fw:
+        print(f"\n{summary(0, fw)}: install from Settings → System → Firmware updates (needs AC power + reboot).")
     return 1 if failed else 0
+
+
+def selftest():
+    fp = {"device": "Fingerprint Sensor", "new": "01000334"}
+    assert summary(0, []) == "Everything is up to date"
+    assert summary(1, []) == "1 package update"
+    assert summary(33, [fp]) == "33 package updates · 1 firmware update (Fingerprint Sensor 01000334)"
+    assert summary(0, [fp, {"device": "BIOS", "new": "3.05"}]) == \
+        "2 firmware updates (Fingerprint Sensor 01000334, BIOS 3.05)"
+    print("ok")
+    return 0
 
 
 def main(argv):
@@ -115,7 +158,9 @@ def main(argv):
         return 0
     if mode == "apply":
         return apply()
-    print("usage: fw-updates --check | run | apply", file=sys.stderr)
+    if mode == "test":
+        return selftest()
+    print("usage: fw-updates --check | run | apply | test", file=sys.stderr)
     return 2
 
 

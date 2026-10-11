@@ -369,6 +369,10 @@ class SystemPage(Page):
                 upd.get_style_context().add_class("primary")
                 upd.connect("clicked", lambda _b: launch("fw-term", "--hold", "-e", "fw-updates", "apply"))
                 buttons.pack_start(upd, False, False, 0)
+        if self.fw and self.fw[0]:  # firmware isn't part of the dnf update: point to its own section
+            n = len(self.fw[0])
+            self.pk_box.pack_start(label(f"Also {n} firmware update{'s' if n != 1 else ''}: see Firmware updates "
+                                         "below.", "dim", wrap=True), False, False, 0)
         self.pk_box.pack_start(buttons, False, False, 0)
         self.pk_box.show_all()
 
@@ -382,6 +386,7 @@ class SystemPage(Page):
     def got_firmware(self, res):
         self.fw = res
         self.render_firmware()
+        self.render_packages()
 
     def render_firmware(self):
         for c in self.fw_box.get_children():
