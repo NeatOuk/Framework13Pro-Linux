@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Keyboard shortcut cheat sheet (SUPER+/): every bind with a description, from the running Hyprland
+(`hyprctl -j binds`, so binds added in hypr/local.lua show up too when they carry { description = "…" }), in a
+searchable fuzzel list. Runs of numbered binds (workspaces 1–9) are folded into one line. Picking a line does nothing.
+  fw-keys          the list
+  fw-keys --print  the same lines on stdout
+"""
+import json
+import re
+import subprocess
+import sys
+
+# xkb modifier bits as Hyprland reports them (modmask)
+MODS = ((64, "SUPER"), (4, "CTRL"), (8, "ALT"), (1, "SHIFT"))
+NAMES = {"RETURN": "Enter", "ESCAPE": "Esc", "SPACE": "Space", "TAB": "Tab", "PRINT": "Print", "slash": "/",
+         "comma": ",", "period": ".", "equal": "=", "mouse:272": "left drag", "mouse:273": "right drag",
+         "mouse_down": "scroll down", "mouse_up": "scroll up", "left": "←", "right": "→", "up": "↑", "down": "↓",
+         "XF86AudioRaiseVolume": "Volume up key", "XF86AudioLowerVolume": "Volume down key",
+         "XF86AudioMute": "Mute key", "XF86AudioMicMute": "Mic mute key", "XF86MonBrightnessUp": "Brightness up key",
+         "XF86MonBrightnessDown": "Brightness down key", "XF86AudioPlay": "Play key", "XF86AudioNext": "Next key",
+         "XF86AudioPrev": "Previous key"}
+
+
+def combo(b):
+    key = NAMES.get(b["key"], b["key"].upper() if len(b["key"]) == 1 else b["key"])
+    return " + ".join([name for bit, name in MODS if b["modmask"] & bit] + [key])
+
+
+def lines(binds):
+    """(keys, description) per bind; binds that differ only in a trailing digit in both keys and description
+    (workspaces 1–9) become one line "SUPER + 1…9  Workspace 1…9" where the first of them was."""
+    rows, runs = [], {}  # runs: (key stem, description stem) → [row index, first digit, last digit]
+    for b in binds:
+        desc = b.get("description") or ""
+        if not desc or b.get("submap"):
+            continue
+        keys = combo(b)
+        k, d = re.fullmatch(r"(.*\D)(\d)", keys), re.fullmatch(r"(.*\D)(\d)", desc)
+        if k and d and k.group(2) == d.group(2):
+            stem, n = (k.group(1), d.group(1)), int(d.group(2))
+            if stem in runs:
+                run = runs[stem]
+                run[1], run[2] = min(run[1], n), max(run[2], n)
+                rows[run[0]] = (f"{stem[0]}{run[1]}…{run[2]}", f"{stem[1]}{run[1]}…{run[2]}")
+                continue
+            runs[stem] = [len(rows), n, n]
+        rows.append((keys, desc))
+    return rows
+
+
+def main():
+    binds = json.loads(subprocess.run(["hyprctl", "-j", "binds"], capture_output=True, text=True).stdout or "[]")
+    rows = lines(binds)
+    width = max((len(k) for k, _d in rows), default=0)
+    text = "\n".join(f"{k:<{width}}   {d}" for k, d in rows)
+    if sys.argv[1:] == ["--print"]:
+        print(text)
+        return 0
+    subprocess.run(["fuzzel", "--dmenu", "--prompt", "Shortcuts › ", "--width", "70", "--lines", "20",
+                    "--no-sort"], input=text, capture_output=True, text=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
