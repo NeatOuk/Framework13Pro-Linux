@@ -292,14 +292,14 @@ class SystemPage(Page):
     def render_weather(self):
         busy = "weather" in self.busy
         self.city = Gtk.Entry(text=store.get("weather_city") or "", width_chars=26)
-        self.city.set_placeholder_text("e.g. Phnom Penh (empty = hidden)")
+        self.city.set_placeholder_text(f"empty = time zone ({weather.tz_city() or 'none: hidden'})")
         self.city.connect("activate", lambda _e: self.set_city())
         save = Gtk.Button(label="Save")
         save.connect("clicked", lambda _b: self.set_city())
         self.city.set_sensitive(not busy)
         save.set_sensitive(not busy)
         p = store.get("weather_place")
-        shown = p.get("label") if isinstance(p, dict) and p.get("query") == store.get("weather_city") else None
+        shown = p.get("label") if isinstance(p, dict) and p.get("query") == weather.city() else None
         self.row("City", self.hbox(self.city, save),
                  hint=f"Bar shows the weather in {shown} · Open-Meteo" if shown else "Shown right of the clock")
         self.add_widget(label(BUSY_NOTE["weather"] if busy else self.notes.get("weather", ""), "dim"))
@@ -317,7 +317,7 @@ class SystemPage(Page):
         if not city:
             store.set("weather_city", "")
             store.set("weather_place", None)
-            self.notes["weather"] = "Weather hidden"
+            self.notes["weather"] = "Using the time zone's city" if weather.tz_city() else "Weather hidden"
             weather.refresh_bar()
             self.render()
             return

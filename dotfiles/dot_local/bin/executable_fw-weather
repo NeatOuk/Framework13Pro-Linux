@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bar weather (custom/weather, signal 15, right of the clock), Open-Meteo via fw13.weather.
 
-  fw-weather --bar      waybar JSON (empty = hidden when no city is set in Settings → System → Weather)
+  fw-weather --bar      waybar JSON (empty = hidden when neither Settings → System → Weather nor the time zone gives a city)
 """
 import json
 import os

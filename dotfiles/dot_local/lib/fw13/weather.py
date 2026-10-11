@@ -1,6 +1,6 @@
 """Weather for the bar (custom/weather, fw-weather) from Open-Meteo (no key, stdlib urllib only).
 
-Store: `weather_city` (as typed in Settings → System), `weather_place` (geocoded once: name, label, lat, lon,
+Store: `weather_city` (as typed in Settings → System; empty = the time zone's city), `weather_place` (geocoded once: name, label, lat, lon,
 query = the city it was resolved from), `weather_units` ("c" / "f"). Forecast cached in ~/.cache/fw13/weather.json
 for 30 minutes; offline or on an error the bar shows the last cached value, dimmed (class "stale").
 """
@@ -70,14 +70,26 @@ def forecast(place, units):
                      zip(dl["time"], dl["weather_code"], dl["temperature_2m_max"], dl["temperature_2m_min"])]}
 
 
+def tz_city():
+    """The city of the system time zone (/etc/localtime → Asia/Phnom_Penh → "Phnom Penh"); "" for Etc/UTC or none."""
+    zone = os.path.realpath("/etc/localtime").partition("/zoneinfo/")[2]
+    region, _, name = zone.rpartition("/")
+    return "" if not region or region.startswith("Etc") else name.replace("_", " ")
+
+
+def city():
+    """The city typed in Settings, else the time zone's city."""
+    return (store.get("weather_city") or "").strip() or tz_city()
+
+
 def place():
-    """The stored place for the stored city, geocoding again when the city changed; None without a city."""
-    city = (store.get("weather_city") or "").strip()
-    if not city:
+    """The stored place for city(), geocoding again when the city changed; None without a city."""
+    name = city()
+    if not name:
         return None
     p = store.get("weather_place")
-    if not (isinstance(p, dict) and p.get("query") == city):
-        p = geocode(city)
+    if not (isinstance(p, dict) and p.get("query") == name):
+        p = geocode(name)
         store.set("weather_place", p)
     return p
 
@@ -99,7 +111,7 @@ def _write_cache(data):
 
 def bar():
     """Waybar JSON: icon + temperature; {"text": ""} (hidden) without a city."""
-    if not (store.get("weather_city") or "").strip():
+    if not city():
         return {"text": ""}
     units = "f" if store.get("weather_units") == "f" else "c"
     cache, stale = _read_cache(), False

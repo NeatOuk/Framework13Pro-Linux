@@ -23,7 +23,7 @@
     "format-alt": "{:%d %B W%V %Y}",
     "tooltip-format": "<tt>{calendar}</tt>"
   },
-  // Weather (fw-weather, Open-Meteo): icon + temperature, 3-day tooltip; hidden until a city is set in Settings → System; signal 15.
+  // Weather (fw-weather, Open-Meteo): icon + temperature, 3-day tooltip; city from Settings → System, else the time zone's city (hidden for UTC); signal 15.
   "custom/weather": { "exec": "fw-weather --bar", "return-type": "json", "interval": 1800, "signal": 15, "on-click": "fw-settings system" },
   "custom/recording": {
     "exec": "pgrep -x wf-recorder >/dev/null && echo ' REC' || echo ''",
