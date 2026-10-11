@@ -13,4 +13,14 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/fw-vpn-ctl</annotate>
   </action>
+  <action id="org.fw13.vpn-config">
+    <description>Edit the strongSwan VPN connection</description>
+    <message>Authentication is required to read or change the VPN settings</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/bin/fw-vpn-config</annotate>
+  </action>
 </policyconfig>

@@ -1,0 +1,213 @@
+#!/usr/bin/python3 -I
+"""Root side of Settings → Security → VPN: fw-vpn-config show | write (JSON on stdin).
+
+Run through pkexec (action org.fw13.vpn-config: asks for the password, kept for a few minutes). Handles the one
+connection fw-vpn uses, the first /etc/strongswan/swanctl/conf.d/<name>.conf, written from a FortiGate-style
+template (IKEv2, the gateway proves itself with a PSK, you log in with EAP user/password).
+  show   JSON of the non-secret fields + has_psk/has_password; {} without a connection
+  write  JSON {old, name, server, remote_id, local_id, username, networks, psk, password} on stdin; an empty
+         psk/password keeps the current one. The previous file is kept as <old>.conf.bak (0600), then
+         swanctl --load-all.
+"""
+import glob
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+DIR = "/etc/strongswan/swanctl/conf.d"
+NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")
+HOST = re.compile(r"[A-Za-z0-9.:-]{1,253}")          # IP address or DNS name
+IDENT = re.compile(r"[A-Za-z0-9@._:+/-]{1,128}")     # IKE identities: user, e-mail, FQDN, IP
+
+
+def current():
+    files = sorted(glob.glob(os.path.join(DIR, "*.conf")))
+    return (os.path.basename(files[0])[:-5], files[0]) if files else (None, None)
+
+
+def _strip_comment(line):
+    quoted = escaped = False
+    for i, c in enumerate(line):
+        if escaped:
+            escaped = False
+        elif c == "\\" and quoted:
+            escaped = True
+        elif c == '"':
+            quoted = not quoted
+        elif c == "#" and not quoted:
+            return line[:i]
+    return line
+
+
+def _unquote(v):
+    if len(v) >= 2 and v[0] == v[-1] == '"':
+        return re.sub(r"\\(.)", r"\1", v[1:-1])
+    return v
+
+
+def parse(text):
+    """swanctl.conf → nested dicts (one statement per line, as this tool and hand-written files have it)."""
+    root, stack = {}, []
+    node = root
+    for raw in text.splitlines():
+        line = _strip_comment(raw).strip()
+        if not line:
+            continue
+        if line.endswith("{"):
+            child = {}
+            node[line[:-1].strip()] = child
+            stack.append(node)
+            node = child
+        elif line == "}":
+            node = stack.pop()
+        elif "=" in line:
+            k, _, v = line.partition("=")
+            node[k.strip()] = _unquote(v.strip())
+        else:
+            raise ValueError(f"unexpected line: {line[:40]}")
+    return root
+
+
+def fields(name, path):
+    conf = parse(open(path).read())
+    c = conf["connections"][name]
+    child = c.get("children", {}).get(name, {})
+    sec = conf.get("secrets", {})
+    psk = next((v.get("secret") for k, v in sec.items() if k.startswith("ike")), None)
+    pw = next((v.get("secret") for k, v in sec.items() if k.startswith("eap")), None)
+    return {"name": name, "server": c.get("remote_addrs", ""), "remote_id": c.get("remote", {}).get("id", ""),
+            "local_id": c.get("local", {}).get("id", ""), "username": c.get("local", {}).get("eap_id", ""),
+            "networks": child.get("remote_ts", ""), "psk": psk, "password": pw}
+
+
+def _q(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def render(f):
+    n = f["name"]
+    remote_id = f"      id = {f['remote_id']}\n" if f["remote_id"] else ""
+    return f"""# Written by Settings → Security → VPN (fw-vpn-config); the previous version is kept as {n}.conf.bak.
+# FortiGate dial-up VPN: IKEv2, the gateway proves itself with the PSK, you log in with EAP (user/password).
+# Connect:    bar shield icon, or sudo swanctl --initiate --child {n}
+# Log:        sudo journalctl -u strongswan -f
+connections {{
+  {n} {{
+    version = 2
+    remote_addrs = {f['server']}
+    vips = 0.0.0.0                       # Mode Config: the FortiGate hands out the address (and DNS)
+    proposals = aes128-sha256-ecp384,aes256-sha256-ecp384   # Phase 1: AES128/AES256 + SHA256, DH 20
+    rekey_time = 24h
+    dpd_delay = 30s
+    encap = no                           # NAT traversal is automatic
+    local {{
+      auth = eap                         # the FortiGate picks the EAP method (usually MSCHAPv2)
+      id = {f['local_id'] or f['username']}
+      eap_id = {f['username']}
+    }}
+    remote {{
+      auth = psk
+{remote_id}    }}
+    children {{
+      {n} {{
+        remote_ts = {f['networks']}
+        esp_proposals = aes128-sha256-ecp384,aes256-sha256-ecp384   # Phase 2 + PFS DH 20
+        rekey_time = 12h
+        dpd_action = restart
+      }}
+    }}
+  }}
+}}
+
+secrets {{
+  ike-{n} {{
+    secret = {_q(f['psk'])}
+  }}
+  eap-{n} {{
+    id = {f['username']}
+    secret = {_q(f['password'])}
+  }}
+}}
+"""
+
+
+def _secret(v, what):
+    if not isinstance(v, str) or len(v) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in v):
+        raise ValueError(f"{what}: up to 256 characters, no control characters")
+    return v
+
+
+def validate(req, old):
+    f = {}
+    for key, rx, what, need in (("name", NAME, "Name: letters, digits, - and _", True),
+                                ("server", HOST, "Server: an IP address or host name", True),
+                                ("remote_id", IDENT, "Gateway ID: no spaces or quotes", False),
+                                ("local_id", IDENT, "Your ID: no spaces or quotes", False),
+                                ("username", IDENT, "Username: no spaces or quotes", True)):
+        v = req.get(key) or ""
+        if not isinstance(v, str) or (v or need) and not rx.fullmatch(v):
+            raise ValueError(what)
+        f[key] = v
+    nets = [n.strip() for n in (req.get("networks") or "0.0.0.0/0").split(",") if n.strip()]
+    try:
+        f["networks"] = ",".join(str(ipaddress.ip_network(n, strict=False)) for n in nets)
+    except ValueError:
+        raise ValueError("Networks: comma-separated addresses like 10.0.0.0/16") from None
+    for key, what in (("psk", "Pre-shared key"), ("password", "Password")):
+        v = _secret(req.get(key) or "", what) or (old or {}).get(key)
+        if not v:
+            raise ValueError(f"{what} is needed")
+        f[key] = v
+    return f
+
+
+def write(req):
+    name, path = current()
+    if (req.get("old") or None) != name:
+        raise ValueError("The VPN changed on disk meanwhile; reopen the editor")
+    old = fields(name, path) if path else None
+    f = validate(req, old)
+    os.makedirs(DIR, mode=0o700, exist_ok=True)
+    if path:
+        with open(path) as src, open(os.open(path + ".bak", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as dst:
+            dst.write(src.read())
+    fd, tmp = tempfile.mkstemp(dir=DIR, prefix=".fw-vpn-")   # mode 0600
+    with os.fdopen(fd, "w") as out:
+        out.write(render(f))
+    os.replace(tmp, os.path.join(DIR, f["name"] + ".conf"))
+    if path and name != f["name"]:
+        os.rename(path + ".bak", os.path.join(DIR, f["name"] + ".conf.bak"))
+        os.remove(path)
+    r = subprocess.run(["swanctl", "--load-all"], capture_output=True, text=True)
+    return {"ok": True, "loaded": r.returncode == 0, "note": "" if r.returncode == 0 else
+            "Saved; strongSwan didn't reload it (is the strongswan service running?)"}
+
+
+def main():
+    os.environ["PATH"] = "/usr/sbin:/usr/bin"
+    cmd = sys.argv[1] if len(sys.argv) == 2 else ""
+    try:
+        if cmd == "show":
+            name, path = current()
+            out = {}
+            if path:
+                out = fields(name, path)
+                out["has_psk"], out["has_password"] = bool(out.pop("psk")), bool(out.pop("password"))
+        elif cmd == "write":
+            out = write(json.loads(sys.stdin.read(65536)))
+        else:
+            print("usage: fw-vpn-config show | write < json", file=sys.stderr)
+            return 2
+    except (OSError, ValueError, KeyError, TypeError, IndexError) as e:
+        print(json.dumps({"error": str(e) or type(e).__name__}))
+        return 1
+    print(json.dumps(out))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
