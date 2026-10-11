@@ -231,6 +231,8 @@ system_phase() {
   # Bar VPN toggle without a password: pkexec fw-vpn-ctl (action file) + rule for wheel in an active local session
   $SUDO install -D -m 0644 system/usr/share/polkit-1/actions/org.fw13.vpn.policy /usr/share/polkit-1/actions/org.fw13.vpn.policy
   $SUDO install -D -m 0644 system/etc/polkit-1/rules.d/50-fw13-vpn.rules /etc/polkit-1/rules.d/50-fw13-vpn.rules
+  # Automatic time zone (fw13.timezone): Hyprland has no GeoClue agent, so our client is allowed as a system app
+  $SUDO install -D -m 0644 system/etc/geoclue/conf.d/90-fw13-timezone.conf /etc/geoclue/conf.d/90-fw13-timezone.conf
   [[ $CI == 1 ]] || $SUDO udevadm control --reload
   if ! echo "$FWTOOL_SHA256  /usr/local/bin/framework_tool" | sha256sum -c --status 2>/dev/null; then
     say "framework_tool $FWTOOL_VERSION (Framework's EC/firmware CLI)"

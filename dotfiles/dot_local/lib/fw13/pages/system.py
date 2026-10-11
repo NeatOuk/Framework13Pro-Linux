@@ -8,7 +8,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
-from .. import store, system, weather  # noqa: E402
+from .. import store, system, timezone, weather  # noqa: E402
 from .common import Page, label, launch  # noqa: E402
 
 BUSY_NOTE = {"tz": "Setting the time zone…", "ntp": "Changing time sync…", "host": "Saving…",
@@ -124,6 +124,10 @@ class SystemPage(Page):
         self.tz_note = label(BUSY_NOTE["tz"] if busy_tz else self.notes.get("tz", ""), "dim")
         self.row("Time zone", self.hbox(self.tz_entry, self.tz_set))
         self.add_widget(self.tz_note)
+        auto = Gtk.Switch(active=bool(store.get("timezone_auto")))
+        auto.connect("state-set", self.on_tz_auto)
+        self.row("Set time zone automatically", auto, hint="From your location (GeoClue): at login, on a new network "
+                 "and every 6 hours")
 
         busy_ntp = "ntp" in self.busy
         self.ntp = Gtk.Switch()
@@ -259,6 +263,11 @@ class SystemPage(Page):
 
     def done_timezone(self, res):
         self.finish("tz", res)
+
+    def on_tz_auto(self, _sw, on):
+        store.set("timezone_auto", on)
+        if on:  # check now instead of waiting for the next network change
+            bg(timezone.tick, lambda _r: self.reload())
 
     # --- NTP ---
 

@@ -1,0 +1,16 @@
+[Unit]
+Description=fw13 automatic time zone: GeoClue location → zone at login, on a new network, every 6 h (Hyprland only)
+# The condition skips it outside Hyprland: GNOME has its own automatic time zone. Does nothing until
+# Settings → System → "Set time zone automatically" is on.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Environment=PYTHONPATH=%h/.local/lib
+ExecCondition=/usr/bin/python3 -m fw13.timezone enabled
+ExecStart=/usr/bin/python3 -m fw13.timezone watch
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=graphical-session.target

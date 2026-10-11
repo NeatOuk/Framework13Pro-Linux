@@ -34,6 +34,7 @@ system/usr/local/bin/      fw-vpn-ctl (root side of the bar VPN toggle, see fw-v
                            never removes it; `tpm` refused unless Secure Boot is on (PCR 7 is constant otherwise; the page hides it too);
                            tpm2-device=auto in the volume's crypttab line (backup crypttab.fw13.bak) or rd.luks.options via grubby;
                            /etc/dracut.conf.d/fw13-tpm2.conf adds tpm2-tss (removed for password); dracut -f --regenerate-all)
+system/etc/geoclue/conf.d/ 90-fw13-timezone.conf: [fw13-timezone] allowed + system=true, so fw13.timezone gets a location without a GeoClue agent (none runs in Hyprland)
 system/etc/modprobe.d/     fw13-charge-control.conf: cros_charge_control probe_with_fwk_charge_control=1 (the kernel skips Framework otherwise) → charge limit in UPower / power panel
 system/etc/systemd/system/ fw-health-root.{service,timer} (:30 hourly → /var/lib/fw13/health-root.json, 0644; install.sh copies the folder only if it has files),
                            fw-power-profile.service (boot) + system/etc/udev/rules.d/90-fw-power-profile.rules (Mains change) → fw-power-profile:
@@ -62,6 +63,7 @@ dotfiles/                  chezmoi source (.chezmoiroot = dotfiles)
                            weather (Open-Meteo via urllib: geocoding-api once per city → store `weather_place`, forecast cached
                            30 min in ~/.cache/fw13/weather.json, stale = last value dimmed; store `weather_city`/`weather_units`;
                            Settings → System → Weather),
+                           timezone (automatic time zone, store `timezone_auto`, off by default; Settings → System → Date & time switch: user service fw-timezone (Hyprland only via ExecCondition; `python3 -m fw13.timezone watch`) checks 30 s after start, 15 s after NetworkManager StateChanged → 70 and every 6 h: GeoClue2 client (CreateClient, DesktopId fw13-timezone, accuracy CITY, LocationUpdated, 30 s timeout) → Open-Meteo forecast timezone=auto → zone under /usr/share/zoneinfo → timedate1 SetTimezone(interactive=false) + notify "Time zone changed to X"; polkit asking for a password → notify only; `check` = read-only dry run, `test` self-check),
                            power (+ tuning(): read-only CPU driver/EPP/boost/platform profile/ABM/tuned readout), als (light sensor via
                            SensorProxy + auto-brightness curve), health (fw-hwcheck hardware group + fw-health daily group; expected Framework
                            values in one table, non-Framework → SKIP), notify (shared notification + session_env; crash-watch and health use it),
