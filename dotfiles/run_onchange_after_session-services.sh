@@ -7,11 +7,13 @@
 #  - fw-battery-warn: low-battery notifications at 20/10/5 % (Hyprland only; levels in Settings → Power)
 #  - fw-health.timer: health report 15 min after login, then daily (fw-health --timer; notifies in Hyprland only)
 #  - fw-updates.timer: dnf update check 20 min after login, then daily (fw-updates --check; Update now = snapshot first)
+#  - gcr-ssh-agent.socket: Fedora's SSH agent (gcr package), SSH_AUTH_SOCK in uwsm/env-hyprland; skipped without gcr
 systemctl --user show-environment >/dev/null 2>&1 || exit 0
 systemctl --user daemon-reload
 systemctl --user enable fw-crash-watch.service mako.service fw-theme-session.service fw-autobrightness.service \
   fw-battery-warn.service
 systemctl --user enable --now fw-health.timer fw-updates.timer
+if [ -x /usr/libexec/gcr-ssh-agent ]; then systemctl --user enable --now gcr-ssh-agent.socket; fi
 systemctl --user reset-failed mako.service 2>/dev/null || true
 systemctl --user restart fw-crash-watch.service 2>/dev/null || true
 systemctl --user restart fw-battery-warn.service 2>/dev/null || true

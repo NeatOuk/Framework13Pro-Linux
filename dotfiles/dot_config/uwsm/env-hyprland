@@ -20,3 +20,7 @@ export BAT_THEME="${BAT_THEME:-ansi}"
 # session, which replaces the one from environment.d/10-session.conf; a display manager that starts the session
 # through a login shell (GDM) adds these, greetd's plain shell doesn't — then every fw-* key and autostart failed.
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH" ;; esac
+
+# SSH agent: Fedora's gcr-ssh-agent socket (enabled by run_onchange_after_session-services; GNOME sets the same path
+# itself). Only when the socket exists and nothing else (the user's own agent) is set. Needs a re-login.
+if [ -z "${SSH_AUTH_SOCK:-}" ] && [ -S "$XDG_RUNTIME_DIR/gcr/ssh" ]; then export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/gcr/ssh"; fi

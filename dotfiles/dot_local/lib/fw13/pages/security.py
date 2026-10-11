@@ -1,5 +1,5 @@
 """Security: fingerprint, lock screen, disk encryption unlock (LUKS + TPM), Secure Boot, Citadel firewall, VPN
-(strongSwan toggle note, pointer to Network → VPN) and the login screen.
+(strongSwan toggle note, pointer to Network → VPN), SSH keys (gcr-ssh-agent) and the login screen.
 
 Root-only facts (LUKS tokens, Secure Boot) come from /var/lib/fw13/health-root.json (fw-health-root, hourly), so
 opening the page never asks for a password. Changing how the disk unlocks runs `sudo fw-disk-unlock <mode>` in a
@@ -24,13 +24,38 @@ UNLOCK = (("password", "Password only"), ("tpm-pin", "TPM + PIN"), ("tpm", "TPM 
 REMOVE_SH = 'read -rp "Delete every enrolled finger? [y/N] " a; [[ $a == [yY]* ]] && fprintd-delete "$USER"'
 VPN_CTL = "/usr/local/bin/fw-vpn-ctl"
 VPN_POLICY = "/usr/share/polkit-1/actions/org.fw13.vpn.policy"
+SSH_AGENT = "/usr/libexec/gcr-ssh-agent"
+SSH_SOCK = os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"), "gcr", "ssh")
+SSH_DIR = os.path.expanduser("~/.ssh")
+
+
+def _fingerprints(text):
+    """SHA256 fingerprints in ssh-keygen -l / ssh-add -l output ('256 SHA256:… comment (ED25519)' per line)."""
+    return [f for line in text.splitlines() for f in line.split()[1:2] if f.startswith("SHA256:")]
+
+
+def ssh_state():
+    """Agent status and the keys in ~/.ssh: {"agent": None (not installed) / False (not running) / [fingerprints],
+    "keys": [(pub path, fingerprint, 'ssh-keygen -lf' line)]}."""
+    agent = None
+    if os.path.exists(SSH_AGENT):
+        r = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, timeout=5,
+                           env={**os.environ, "SSH_AUTH_SOCK": SSH_SOCK})
+        agent = _fingerprints(r.stdout) if r.returncode in (0, 1) else False  # 1 = no keys, 2 = no agent
+    keys = []
+    for pub in sorted(glob.glob(os.path.join(SSH_DIR, "*.pub"))):
+        r = subprocess.run(["ssh-keygen", "-lf", pub], capture_output=True, text=True, timeout=5)
+        fp = _fingerprints(r.stdout)
+        if fp:
+            keys.append((pub, fp[0], r.stdout.strip()))
+    return {"agent": agent, "keys": keys}
 
 
 def _load():
     """Everything the page shows; runs in a worker thread."""
     return {"fingers": setup.fingerprints(), "root": health.root_facts(), "citadel": system.citadel_status(),
             "citadel_app": shutil.which("citadel-app"), "login": setup.login_screen(),
-            "vpn": bool(glob.glob("/etc/strongswan/swanctl/conf.d/*.conf"))}
+            "vpn": bool(glob.glob("/etc/strongswan/swanctl/conf.d/*.conf")), "ssh": ssh_state()}
 
 
 def unlock_mode(luks):
@@ -87,6 +112,7 @@ class SecurityPage(Page):
                  hint="Changed in the BIOS (F2 at power-on), not from here")
         self.render_citadel(st["citadel"], st["citadel_app"])
         self.render_vpn(st["vpn"])
+        self.render_ssh(st["ssh"])
         self.heading("Login screen")
         self.row("Login", label(st["login"], "dim"))
         self.show_all()
@@ -151,6 +177,34 @@ class SecurityPage(Page):
                      else "Re-run the installer's system phase for the passwordless toggle")
         self.row("Your VPNs", button("Network settings", lambda: launch("fw-settings", "network")),
                  hint="Add, edit and connect every VPN in Network → VPN")
+
+    def render_ssh(self, st):
+        self.heading("SSH keys")
+        agent = st["agent"]
+        if agent is None:
+            status = label("SSH agent not installed", "dim")
+        elif agent is False:
+            status = label("Not running", "warn")
+        else:
+            status = label(f"Running \u00b7 {len(agent)} key{'s' if len(agent) != 1 else ''} loaded", "ok")
+        self.row("SSH agent", status, hint="gcr-ssh-agent: keys in ~/.ssh are offered too (passphrase asked on first use); added keys last until logout")
+        sock = ["env", f"SSH_AUTH_SOCK={SSH_SOCK}"]
+        for pub, fp, line in st["keys"]:
+            add = button("Add to agent", lambda p=pub: _term(*sock, "ssh-add", p[:-4]))
+            add.set_sensitive(isinstance(agent, list) and fp not in agent)
+            copy = button("Copy public key", lambda p=pub: self.copy_pub(p))
+            self.row(os.path.basename(pub)[:-4], _row_buttons(add, copy), hint=line)
+        if not st["keys"]:
+            self.row("No SSH key in ~/.ssh", button("Create key\u2026", lambda: _term("ssh-keygen", "-t", "ed25519")),
+                     hint="Opens a terminal: ssh-keygen asks where to save it and for a passphrase")
+
+    def copy_pub(self, pub):
+        try:
+            with open(pub, "rb") as f:
+                subprocess.run(["wl-copy"], stdin=f, timeout=5, check=True)
+        except (OSError, subprocess.SubprocessError) as e:
+            self.add_widget(label(f"Copy failed: {e}", "bad", wrap=True))
+            self.show_all()
 
     def render_citadel(self, st, app):
         self.heading("Firewall (Citadel)")
