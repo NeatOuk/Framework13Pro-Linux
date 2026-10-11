@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Low-battery warnings (user service fw-battery-warn, Hyprland only; GNOME/KDE warn on their own).
+
+Watches the battery over UPower D-Bus (PropertiesChanged, plus a 60 s check) and notifies once per discharge at
+each level of store `battery_warn` (Settings → Power → On battery → Warn at; read on every check): 20 % normal,
+10 and 5 % critical (stay until dismissed, shown under do-not-disturb: mako [app-name=fw-battery
+urgency=critical]). Plugging in resets them.
+  fw-battery-warn            run
+  fw-battery-warn enabled    exit 0 when the service should run (Hyprland, a battery)
+  fw-battery-warn test       self-check of the threshold logic
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
+from fw13 import notify, power  # noqa: E402
+from gi.repository import Gio, GLib  # noqa: E402  (versions pinned by fw13.notify / fw13.power)
+
+APP = "fw-battery"
+# UPower's CriticalPowerAction as it reports it → what the laptop does at PercentageAction
+ACTIONS = {"PowerOff": "power off", "Hibernate": "hibernate", "HybridSleep": "hibernate", "Suspend": "suspend",
+           "Sleep": "suspend"}
+
+
+def step(pct, on_battery, levels, warned):
+    """(level to warn about or None, new warned set). One warning per crossing; starting below several levels
+    warns once, for the lowest."""
+    if not on_battery:
+        return None, frozenset()
+    hit = {t for t in levels if pct <= t and t not in warned}
+    return (min(hit) if hit else None), warned | hit
+
+
+def action_text():
+    act = power._call(power.UP, "/org/freedesktop/UPower", power.UP, "GetCriticalAction", None, "(s)")
+    pct = 2
+    try:
+        for line in open("/etc/UPower/UPower.conf"):
+            if line.startswith("PercentageAction="):
+                pct = round(float(line.split("=", 1)[1]))
+    except (OSError, ValueError):
+        pass
+    what = ACTIONS.get(act[0] if act else "", "power off (or hibernate if set up)")
+    return f"the laptop will {what} at {pct} %"
+
+
+class Watcher:
+    def __init__(self):
+        self.warned = frozenset()
+        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        for path in ("/org/freedesktop/UPower", power.battery_path()):
+            self.bus.signal_subscribe(power.UP, "org.freedesktop.DBus.Properties", "PropertiesChanged", path,
+                                      None, Gio.DBusSignalFlags.NONE, lambda *_: self.check())
+        GLib.timeout_add_seconds(60, self.check)
+        self.check()
+
+    def check(self):
+        b = power.battery()
+        on = power._call(power.UP, "/org/freedesktop/UPower", "org.freedesktop.DBus.Properties", "Get",
+                         GLib.Variant("(ss)", (power.UP, "OnBattery")), "(v)")
+        if b and on is not None:
+            levels = power.warn_levels()
+            level, self.warned = step(b.get("Percentage", 100), on[0], levels, self.warned)
+            if level is not None:
+                self.warn(level, round(b["Percentage"]), b.get("TimeToEmpty", 0))
+        return True
+
+    def warn(self, level, pct, left):
+        if level <= 5:
+            title, body = f"Plug in now: {pct} %", action_text()
+        else:
+            title, body = f"Battery low: {pct} %", f"about {power.duration(left)} left" if left else ""
+        notify.send(APP, title, body, urgency=notify.NORMAL if level > 10 else notify.CRITICAL,
+                    icon="battery-low" if level > 10 else "battery-caution")
+
+
+def selftest():
+    w, lv = frozenset(), (20, 10, 5)
+    assert step(50, True, lv, w) == (None, w)
+    level, w = step(19.6, True, lv, w)
+    assert level == 20
+    assert step(18, True, lv, w)[0] is None          # once per crossing
+    level, w = step(10, True, lv, w)
+    assert level == 10
+    assert step(15, False, lv, w) == (None, frozenset())  # plugged in: reset
+    assert step(7, True, lv, frozenset()) == (10, frozenset({20, 10}))  # unplugged low: one warning
+    assert step(3, True, (), frozenset()) == (None, frozenset())  # Off
+    print("ok")
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
+    if cmd == "test":
+        selftest()
+    elif cmd == "enabled":
+        sys.exit(0 if notify.in_hyprland() and power.battery_path() else 1)
+    else:
+        Watcher()
+        GLib.MainLoop().run()

@@ -1,0 +1,14 @@
+[Unit]
+Description=fw13 low-battery warnings (Hyprland only; levels in Settings → Power)
+# The condition skips it (no failure) outside Hyprland (GNOME/KDE warn on their own) or without a battery.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecCondition=%h/.local/bin/fw-battery-warn enabled
+ExecStart=%h/.local/bin/fw-battery-warn
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

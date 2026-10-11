@@ -25,3 +25,6 @@ invisible=0
 on-notify=none
 width=300
 format=<b>%s</b>
+# Low-battery warnings at 10 and 5 % (fw-battery-warn, critical): shown under do-not-disturb too
+[app-name=fw-battery urgency=critical]
+invisible=0

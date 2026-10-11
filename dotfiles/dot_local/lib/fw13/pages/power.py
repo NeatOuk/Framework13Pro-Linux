@@ -1,11 +1,11 @@
 """Power: battery state, time left/to full, health, power profile, 80 % charge limit, a read-only tuning readout,
-screen & sleep timeouts (plugged in and on battery)."""
+screen & sleep timeouts (plugged in and on battery), low-battery warning levels (fw-battery-warn)."""
 import gi
 
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from .. import idle, power  # noqa: E402
+from .. import idle, power, store  # noqa: E402
 from .common import Page, label  # noqa: E402
 
 
@@ -75,6 +75,13 @@ class PowerPage(Page):
                 combo.set_active_id(str(cur[k]))
                 combo.connect("changed", lambda c, k=k: idle.write({k: int(c.get_active_id())}))
                 self.row(text, combo, hint=hint)
+            if suffix:
+                combo = Gtk.ComboBoxText()
+                for value, text in power.WARN_CHOICES:
+                    combo.append(value, text)
+                combo.set_active_id(store.get("battery_warn") or power.WARN_CHOICES[0][0])
+                combo.connect("changed", lambda c: store.set("battery_warn", c.get_active_id()))
+                self.row("Warn at", combo, hint="low-battery notifications; 10 and 5 % stay up, even in Focus and Zen")
         if not b and not names:
             self.add_widget(label("No battery or power profile service found.", "dim"))
         self.show_all()

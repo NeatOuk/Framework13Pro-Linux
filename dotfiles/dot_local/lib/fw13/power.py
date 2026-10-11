@@ -12,6 +12,8 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
+from . import store  # noqa: E402
+
 UP = "org.freedesktop.UPower"
 PP = "org.freedesktop.UPower.PowerProfiles"
 PP_PATH = "/org/freedesktop/UPower/PowerProfiles"
@@ -68,6 +70,15 @@ def profiles():
 def set_profile(name):
     return _call(PP, PP_PATH, "org.freedesktop.DBus.Properties", "Set",
                  GLib.Variant("(ssv)", (PP, "ActiveProfile", GLib.Variant("s", name)))) is not None
+
+
+WARN_CHOICES = (("20,10,5", "20, 10 and 5 %"), ("10,5", "10 and 5 %"), ("off", "Off"))  # store battery_warn
+
+
+def warn_levels():
+    """Low-battery warning levels (fw-battery-warn), from store `battery_warn`; default 20, 10 and 5 %."""
+    v = store.get("battery_warn") or WARN_CHOICES[0][0]
+    return tuple(int(x) for x in v.split(",")) if v != "off" else ()
 
 
 def duration(seconds):
