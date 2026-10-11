@@ -1,15 +1,15 @@
 #!/usr/bin/python3 -I
-"""Root side of Settings → Security → VPN: fw-vpn-config show | write (JSON on stdin).
+"""Root side of Settings → Network → VPN for strongSwan: fw-vpn-config show <name> | write | delete <name>.
 
-Run through pkexec (action org.fw13.vpn-config: asks for the password, kept for a few minutes). Handles the one
-connection fw-vpn uses, the first /etc/strongswan/swanctl/conf.d/<name>.conf, written from a FortiGate-style
-template (IKEv2, the gateway proves itself with a PSK, you log in with EAP user/password).
-  show   JSON of the non-secret fields + has_psk/has_password; {} without a connection
-  write  JSON {old, name, server, remote_id, local_id, username, networks, psk, password} on stdin; an empty
-         psk/password keeps the current one. The previous file is kept as <old>.conf.bak (0600), then
-         swanctl --load-all.
+Run through pkexec (action org.fw13.vpn-config: asks for the password, kept for a few minutes). Each connection is
+/etc/strongswan/swanctl/conf.d/<name>.conf, written from a FortiGate-style template (IKEv2, the gateway proves
+itself with a PSK, you log in with EAP user/password).
+  show <name>    JSON of the non-secret fields + has_psk/has_password
+  write          JSON {old, name, server, remote_id, local_id, username, networks, psk, password} on stdin
+                 (old = null for a new one); an empty psk/password keeps the current one. The previous file is
+                 kept as <name>.conf.bak (0600), then swanctl --load-all.
+  delete <name>  removes the file (kept as <name>.conf.bak), terminates it, swanctl --load-all
 """
-import glob
 import ipaddress
 import json
 import os
@@ -24,9 +24,14 @@ HOST = re.compile(r"[A-Za-z0-9.:-]{1,253}")          # IP address or DNS name
 IDENT = re.compile(r"[A-Za-z0-9@._:+/-]{1,128}")     # IKE identities: user, e-mail, FQDN, IP
 
 
-def current():
-    files = sorted(glob.glob(os.path.join(DIR, "*.conf")))
-    return (os.path.basename(files[0])[:-5], files[0]) if files else (None, None)
+def conf_path(name):
+    """The file of an existing connection; ValueError otherwise."""
+    if not isinstance(name, str) or not NAME.fullmatch(name):
+        raise ValueError("Bad connection name")
+    path = os.path.join(DIR, name + ".conf")
+    if not os.path.isfile(path):
+        raise ValueError(f"No VPN called {name}")
+    return path
 
 
 def _strip_comment(line):
@@ -91,7 +96,7 @@ def _q(s):
 def render(f):
     n = f["name"]
     remote_id = f"      id = {f['remote_id']}\n" if f["remote_id"] else ""
-    return f"""# Written by Settings → Security → VPN (fw-vpn-config); the previous version is kept as {n}.conf.bak.
+    return f"""# Written by Settings → Network → VPN (fw-vpn-config); the previous version is kept as {n}.conf.bak.
 # FortiGate dial-up VPN: IKEv2, the gateway proves itself with the PSK, you log in with EAP (user/password).
 # Connect:    bar shield icon, or sudo swanctl --initiate --child {n}
 # Log:        sudo journalctl -u strongswan -f
@@ -165,16 +170,27 @@ def validate(req, old):
     return f
 
 
+def _backup(path):
+    with open(path) as src, open(os.open(path + ".bak", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as dst:
+        dst.write(src.read())
+
+
+def _reload():
+    r = subprocess.run(["swanctl", "--load-all"], capture_output=True, text=True)
+    return {"ok": True, "loaded": r.returncode == 0, "note": "" if r.returncode == 0 else
+            "Saved; strongSwan didn't reload it (is the strongswan service running?)"}
+
+
 def write(req):
-    name, path = current()
-    if (req.get("old") or None) != name:
-        raise ValueError("The VPN changed on disk meanwhile; reopen the editor")
+    name = req.get("old") or None
+    path = conf_path(name) if name else None
     old = fields(name, path) if path else None
     f = validate(req, old)
+    if f["name"] != name and os.path.exists(os.path.join(DIR, f["name"] + ".conf")):
+        raise ValueError(f"There already is a VPN called {f['name']}")
     os.makedirs(DIR, mode=0o700, exist_ok=True)
     if path:
-        with open(path) as src, open(os.open(path + ".bak", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as dst:
-            dst.write(src.read())
+        _backup(path)
     fd, tmp = tempfile.mkstemp(dir=DIR, prefix=".fw-vpn-")   # mode 0600
     with os.fdopen(fd, "w") as out:
         out.write(render(f))
@@ -182,25 +198,30 @@ def write(req):
     if path and name != f["name"]:
         os.rename(path + ".bak", os.path.join(DIR, f["name"] + ".conf.bak"))
         os.remove(path)
-    r = subprocess.run(["swanctl", "--load-all"], capture_output=True, text=True)
-    return {"ok": True, "loaded": r.returncode == 0, "note": "" if r.returncode == 0 else
-            "Saved; strongSwan didn't reload it (is the strongswan service running?)"}
+    return _reload()
+
+
+def delete(name):
+    path = conf_path(name)
+    subprocess.run(["swanctl", "--terminate", "--ike", name], capture_output=True)
+    _backup(path)
+    os.remove(path)
+    return _reload()
 
 
 def main():
     os.environ["PATH"] = "/usr/sbin:/usr/bin"
-    cmd = sys.argv[1] if len(sys.argv) == 2 else ""
+    cmd, arg = (sys.argv[1:] + ["", ""])[:2]
     try:
-        if cmd == "show":
-            name, path = current()
-            out = {}
-            if path:
-                out = fields(name, path)
-                out["has_psk"], out["has_password"] = bool(out.pop("psk")), bool(out.pop("password"))
-        elif cmd == "write":
+        if cmd == "show" and arg:
+            out = fields(arg, conf_path(arg))
+            out["has_psk"], out["has_password"] = bool(out.pop("psk")), bool(out.pop("password"))
+        elif cmd == "delete" and arg:
+            out = delete(arg)
+        elif cmd == "write" and not arg:
             out = write(json.loads(sys.stdin.read(65536)))
         else:
-            print("usage: fw-vpn-config show | write < json", file=sys.stderr)
+            print("usage: fw-vpn-config show <name> | write < json | delete <name>", file=sys.stderr)
             return 2
     except (OSError, ValueError, KeyError, TypeError, IndexError) as e:
         print(json.dumps({"error": str(e) or type(e).__name__}))

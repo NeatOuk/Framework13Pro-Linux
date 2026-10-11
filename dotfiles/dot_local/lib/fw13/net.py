@@ -126,6 +126,11 @@ def forget(uuid):
     return _err(_run("connection", "delete", "uuid", uuid, timeout=30))
 
 
+def import_vpn(kind, path):
+    """nmcli connection import (kind: wireguard, openvpn, …); error or None."""
+    return _err(_run("connection", "import", "type", kind, "file", path, timeout=30))
+
+
 def _owe(sec):
     """OWE or OWE transition mode (OWE-TM): encrypted, but no password."""
     return bool(sec) and all(s.startswith("OWE") for s in sec)

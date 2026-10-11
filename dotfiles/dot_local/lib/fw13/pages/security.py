@@ -1,5 +1,5 @@
 """Security: fingerprint, lock screen, disk encryption unlock (LUKS + TPM), Secure Boot, Citadel firewall, VPN
-(connect note + editor, pages/vpn_edit.py) and the login screen.
+(strongSwan toggle note, pointer to Network → VPN) and the login screen.
 
 Root-only facts (LUKS tokens, Secure Boot) come from /var/lib/fw13/health-root.json (fw-health-root, hourly), so
 opening the page never asks for a password. Changing how the disk unlocks runs `sudo fw-disk-unlock <mode>` in a
@@ -19,7 +19,6 @@ from .. import health, setup, system  # noqa: E402
 from ..ui_theme import button  # noqa: E402
 from .common import Page, label, launch  # noqa: E402
 from .system import bg  # noqa: E402
-from . import vpn_edit  # noqa: E402
 
 UNLOCK = (("password", "Password only"), ("tpm-pin", "TPM + PIN"), ("tpm", "TPM automatic"))
 REMOVE_SH = 'read -rp "Delete every enrolled finger? [y/N] " a; [[ $a == [yY]* ]] && fprintd-delete "$USER"'
@@ -31,7 +30,7 @@ def _load():
     """Everything the page shows; runs in a worker thread."""
     return {"fingers": setup.fingerprints(), "root": health.root_facts(), "citadel": system.citadel_status(),
             "citadel_app": shutil.which("citadel-app"), "login": setup.login_screen(),
-            "vpn": bool(glob.glob("/etc/strongswan/swanctl/conf.d/*.conf")), "swanctl": shutil.which("swanctl")}
+            "vpn": bool(glob.glob("/etc/strongswan/swanctl/conf.d/*.conf"))}
 
 
 def unlock_mode(luks):
@@ -56,7 +55,6 @@ class SecurityPage(Page):
     def __init__(self):
         super().__init__("Security")
         self.st = None
-        self.vpn_note = ""
         self.add_widget(label("Loading…", "dim"))
         self.refresh()
 
@@ -88,8 +86,7 @@ class SecurityPage(Page):
                                       {True: "ok", False: "warn"}.get(sb, "dim")),
                  hint="Changed in the BIOS (F2 at power-on), not from here")
         self.render_citadel(st["citadel"], st["citadel_app"])
-        if st["vpn"] or st["swanctl"]:
-            self.render_vpn(st["vpn"])
+        self.render_vpn(st["vpn"])
         self.heading("Login screen")
         self.row("Login", label(st["login"], "dim"))
         self.show_all()
@@ -149,44 +146,11 @@ class SecurityPage(Page):
         self.heading("VPN")
         if have:
             free = os.path.exists(VPN_CTL) and os.path.exists(VPN_POLICY)
-            self.row("Connect / disconnect", label("No password" if free else "Asks for the password", "dim"),
-                     hint="Bar shield icon · admins (wheel) at the laptop, this connection only" if free
+            self.row("strongSwan connect / disconnect", label("No password" if free else "Asks for the password", "dim"),
+                     hint="Bar shield menu · admins (wheel) at the laptop, these connections only" if free
                      else "Re-run the installer's system phase for the passwordless toggle")
-        if not vpn_edit.installed():
-            self.row("Settings", hint="Re-run the installer's system phase for the VPN editor")
-            return
-        self.row("Settings" if have else "No VPN set up", button("Edit…" if have else "Add VPN…", self.edit_vpn),
-                 hint="Server, login and networks · asks for your password")
-        if self.vpn_note:
-            self.add_widget(label(self.vpn_note, "dim", wrap=True))
-
-    def set_vpn_note(self, text):
-        self.vpn_note = text
-        self.render()
-
-    def edit_vpn(self):
-        self.set_vpn_note("Waiting for authorisation…")
-        bg(vpn_edit.show, self.got_vpn, fail=lambda e: {"error": str(e)})
-
-    def got_vpn(self, cur, typed=None, error=""):
-        if "error" in cur:
-            self.set_vpn_note(cur["error"])
-            return False
-        self.set_vpn_note("")
-        req = vpn_edit.dialog(self.get_toplevel(), cur, typed, error)
-        if req:
-            self.set_vpn_note("Saving…")
-            bg(vpn_edit.write, lambda res: self.saved_vpn(res, cur, req), req, fail=lambda e: {"error": str(e)})
-        return False
-
-    def saved_vpn(self, res, cur, req):
-        if "error" in res:  # back to the form with what was typed
-            self.set_vpn_note("")
-            return self.got_vpn(cur, req, res["error"])
-        self.vpn_note = res.get("note") or "Saved"
-        subprocess.run(["pkill", "-RTMIN+13", "-x", "waybar"], check=False)  # bar shield (fw-vpn)
-        self.refresh()
-        return False
+        self.row("Your VPNs", button("Network settings", lambda: launch("fw-settings", "network")),
+                 hint="Add, edit and connect every VPN in Network → VPN")
 
     def render_citadel(self, st, app):
         self.heading("Firewall (Citadel)")

@@ -1,47 +1,86 @@
-#!/usr/bin/env bash
-# Bar VPN toggle for a strongSwan (swanctl) connection: fw-vpn --bar | toggle
-# The connection is /etc/strongswan/swanctl/conf.d/<name>.conf (written by hand, root-only secrets) whose connection
-# and child are both called <name>. No such file → the module stays hidden. Toggling runs the root wrapper
-# /usr/local/bin/fw-vpn-ctl through pkexec; its polkit rule lets wheel in an active local session in without a
-# password. Without the wrapper (older install) it falls back to pkexec swanctl, which asks each time.
-set -euo pipefail
+#!/usr/bin/env python3
+"""Bar VPN shield (custom/vpn, signal 13) over every VPN (lib/fw13/vpn.py: NetworkManager + strongSwan).
 
-SIGNAL=13   # waybar custom/vpn "signal"
+  fw-vpn --bar     waybar JSON: hidden without any VPN, class connected when one is up
+  fw-vpn           menu (bar click with FW_BAR=1 → below the icon): every VPN, ● = connected; pick = connect /
+                   disconnect; last row opens Settings → Network to add or edit
+A NetworkManager VPN whose password isn't saved is brought up in a terminal (`nmcli --ask`), which asks for it.
+"""
+import json
+import os
+import subprocess
+import sys
 
-# shortcut: only the first connection file is used; add a picker if a second VPN ever appears
-conn() {
-  local f
-  for f in /etc/strongswan/swanctl/conf.d/*.conf; do
-    [[ -e $f ]] && { basename "$f" .conf; return 0; }
-  done
-  return 1
-}
+sys.path.insert(0, os.path.expanduser("~/.local/lib"))
 
-# charon installs the tunnel's routes in table 220, which is readable without root: none = down.
-# Before the first connect since boot the table doesn't exist and `ip` exits 2, which pipefail would turn fatal.
-routes() { { ip -4 route show table 220 2>/dev/null || true; } | awk '{ print $1 }' | paste -sd ' '; }
+from fw13 import vpn  # noqa: E402
 
-case ${1:-} in
-  --bar)
-    name="$(conn)" || { echo '{"text": ""}'; exit 0; }
-    nets="$(routes)"
-    if [[ -n $nets ]]; then
-      printf '{"text": "", "class": "connected", "tooltip": "VPN %s: connected\\n%s"}\n' "$name" "$nets"
-    else
-      printf '{"text": "", "class": "off", "tooltip": "VPN %s: off (click to connect)"}\n' "$name"
-    fi
-    ;;
-  toggle)
-    name="$(conn)" || exit 0
-    if [[ -n $(routes) ]]; then
-      args=(--terminate --ike "$name") verb=disconnect ctl=down
-    else
-      args=(--initiate --child "$name") verb=connect ctl=up
-    fi
-    if [[ -x /usr/local/bin/fw-vpn-ctl ]]; then cmd=(/usr/local/bin/fw-vpn-ctl "$ctl"); else cmd=(/usr/bin/swanctl "${args[@]}"); fi
-    pkexec "${cmd[@]}" >/dev/null 2>&1 \
-      || fw-notify "VPN $name" "Could not $verb (cancelled, or see: journalctl -u strongswan)"
-    pkill -RTMIN+"$SIGNAL" -x waybar || true
-    ;;
-  *) echo "usage: fw-vpn --bar | toggle" >&2; exit 2 ;;
-esac
+SIGNAL = 13
+
+
+def bar():
+    vs = vpn.vpns()
+    if not vs:
+        print('{"text": ""}')
+        return
+    on = [v for v in vs if v["active"]]
+    tip = "\n".join(f"{'●' if v['active'] else '○'} {v['name']} · {v['kind']}" for v in vs)
+    if on and any(v["backend"] == "swan" for v in on):
+        tip += "\n\n" + " ".join(vpn.swan_routes())
+    print(json.dumps({"text": "", "class": "connected" if on else "off",
+                      "tooltip": f"VPN: {'connected' if on else 'off'}\n{tip}\n\nClick: connect / disconnect"}))
+
+
+def notify(title, body):
+    subprocess.run(["fw-notify", title, body], check=False)
+
+
+def toggle(v):
+    on = not v["active"]
+    err = vpn.set_active(v, on)
+    if err and on and v["backend"] == "nm" and vpn.needs_secrets(err):
+        subprocess.Popen(["fw-term", "--hold", "-e", "nmcli", "--ask", "connection", "up", "uuid", v["id"]],
+                         start_new_session=True)
+    elif err:
+        notify(f"VPN {v['name']}", f"Could not {'connect' if on else 'disconnect'}: {err}")
+    subprocess.run(["pkill", f"-RTMIN+{SIGNAL}", "-x", "waybar"], check=False)
+
+
+def menu():
+    pos = []
+    if os.environ.get("FW_BAR"):
+        pos = [p for p in subprocess.run(["fw-menu-anchor", "vpn"], capture_output=True,
+                                         text=True).stdout.split("\n") if p]
+        if not pos:
+            return  # second click on the icon: menu closed
+    vs = vpn.vpns()
+    rows = [f"{'●' if v['active'] else '○'}  {v['name']}  ·  {v['kind']}" + ("  (connected)" if v["active"] else "")
+            for v in vs] + ["  Add or edit VPNs…"]
+    r = subprocess.run(["fuzzel", "--dmenu", "--index", *pos, "--prompt", "VPN › ", "--width", "48",
+                        "--lines", str(min(len(rows), 12))], input="\n".join(rows), capture_output=True, text=True)
+    try:
+        pick = int(r.stdout.strip()) if r.returncode == 0 else None
+    except ValueError:
+        pick = None
+    if pick is None or not 0 <= pick < len(rows):
+        return
+    if pick == len(vs):
+        subprocess.Popen(["uwsm", "app", "--", "fw-settings", "network"], start_new_session=True)
+    else:
+        toggle(vs[pick])
+
+
+def main():
+    args = sys.argv[1:]
+    if args == ["--bar"]:
+        bar()
+    elif not args or args == ["toggle"]:  # "toggle": the old bar binding, now the menu
+        menu()
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

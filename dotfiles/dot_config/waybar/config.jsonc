@@ -63,8 +63,8 @@
   // Cloudflare WARP (fw-warp-panel): cloud = connected (accent) / off (dim); hidden when warp-cli isn't installed.
   "custom/warp": { "exec": "fw-warp-panel --bar", "return-type": "json", "interval": 10, "signal": 11,
                    "on-click": "FW_BAR=1 fw-warp-panel", "on-click-right": "fw-warp-panel --toggle" },
-  // strongSwan VPN (fw-vpn): hidden unless /etc/strongswan/swanctl/conf.d has a connection; click = connect/disconnect
-  "custom/vpn": { "exec": "fw-vpn --bar", "return-type": "json", "interval": 10, "signal": 13, "on-click": "fw-vpn toggle" },
+  // Every VPN (fw-vpn: NetworkManager + strongSwan): hidden without one; click = list to connect/disconnect, right-click = Settings → Network
+  "custom/vpn": { "exec": "fw-vpn --bar", "return-type": "json", "interval": 10, "signal": 13, "on-click": "FW_BAR=1 fw-vpn", "on-click-right": "uwsm app -- fw-settings network" },
   "custom/display": { "format": "", "tooltip-format": "Display", "on-click": "FW_BAR=1 fw-display-panel", "on-scroll-up": "brightnessctl -q -e4 -n2 set 5%+ && fw-osd brightness", "on-scroll-down": "brightnessctl -q -e4 -n2 set 5%- && fw-osd brightness" },
   "custom/claude": { "exec": "fw-claude-limits --bar", "return-type": "json", "interval": 60, "on-click": "FW_BAR=1 fw-claude-limits" },
   "custom/opencode": { "exec": "fw-opencode --bar", "return-type": "json", "interval": 300, "signal": 9, "on-click": "FW_BAR=1 fw-opencode" },

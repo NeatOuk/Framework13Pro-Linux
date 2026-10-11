@@ -1,4 +1,4 @@
-"""VPN editor for Settings → Security: a form over the root helper /usr/local/bin/fw-vpn-config (pkexec; polkit
+"""strongSwan VPN editor for Settings → Network → VPN: a form over the root helper /usr/local/bin/fw-vpn-config (pkexec; polkit
 asks for the password once and keeps it a few minutes, so Save doesn't ask again). Secrets never come back from
 the helper: the password and pre-shared key fields start empty and mean "keep" when left so."""
 import json
@@ -42,8 +42,12 @@ def _run(args, data=None):
     return out
 
 
-def show():
-    return _run(["show"])
+def show(name):
+    return _run(["show", name]) if name else {}
+
+
+def delete(name):
+    return _run(["delete", name])
 
 
 def write(req):
@@ -51,8 +55,8 @@ def write(req):
 
 
 def dialog(parent, cur, typed=None, error=""):
-    """Modal form → the request for write() or None. cur: show()'s answer ({} = new VPN); typed: values to put
-    back after a failed save."""
+    """Modal form → the request for write(), "delete", or None. cur: show()'s answer ({} = new VPN); typed:
+    values to put back after a failed save."""
     values = {**cur, **(typed or {})}
     dlg = Gtk.Dialog(transient_for=parent, modal=True, title="Edit VPN" if cur else "Add VPN")
     dlg.get_style_context().add_class("panel")
@@ -83,6 +87,8 @@ def dialog(parent, cur, typed=None, error=""):
     area.pack_start(show_box, False, False, 0)
     err = label(error, "bad", wrap=True, max_width_chars=55)
     area.pack_start(err, False, False, 0)
+    if cur:
+        dlg.add_button("Delete", Gtk.ResponseType.REJECT).get_style_context().add_class("danger")
     dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
     ok = dlg.add_button("Save", Gtk.ResponseType.OK)
     ok.get_style_context().add_class("primary")
@@ -99,6 +105,8 @@ def dialog(parent, cur, typed=None, error=""):
     # read before destroy(): afterwards the entries read as empty
     req = {k: e.get_text() if s else e.get_text().strip() for (k, *_r, s), e in zip(FIELDS, entries.values())}
     dlg.destroy()
+    if resp == Gtk.ResponseType.REJECT:
+        return "delete"
     if resp != Gtk.ResponseType.OK:
         return None
     req["old"] = cur.get("name")

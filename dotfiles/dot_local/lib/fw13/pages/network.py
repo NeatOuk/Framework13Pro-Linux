@@ -1,4 +1,6 @@
-"""Network: Wi-Fi (switch, networks, connect/forget, hidden), Ethernet and VPN via nmcli."""
+"""Network: Wi-Fi (switch, networks, connect/forget, hidden), Ethernet via nmcli, and every VPN (fw13.vpn:
+NetworkManager's + strongSwan's): connect/disconnect, edit (nm-connection-editor / pages/vpn_edit.py), add."""
+import subprocess
 import threading
 import time
 
@@ -7,9 +9,11 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk  # noqa: E402
 
-from .. import net  # noqa: E402
+from .. import net, vpn  # noqa: E402
 from ..ui_theme import button  # noqa: E402
+from . import vpn_edit  # noqa: E402
 from .common import Page, label, launch, wrap  # noqa: E402
+from .system import bg  # noqa: E402
 
 WIFI_ICON, LOCK_ICON, ETH_ICON, VPN_ICON = "", "", "", ""
 
@@ -149,25 +153,102 @@ class NetworkPage(Page):
             self.item(f"{ETH_ICON}  {title}", " · ".join(x for x in (ip, d["device"]) if x), [],
                       lead=state, lead_cls="ok" if d["state"].startswith("connected") else "dim")
 
-        vpns = [c for c in conns if c["type"] in net.VPN_TYPES]
-        if vpns:
-            self.heading("VPN")
-            for c in vpns:
-                if c["active"]:
-                    b = button("Disconnect", lambda c=c: self.run_bg(f"Disconnecting {c['name']}…", net.down,
-                                                                     c["uuid"]))
-                else:
-                    b = button("Connect", lambda c=c: self.run_bg(f"Connecting {c['name']}…", net.up, c["uuid"]),
-                               "primary")
-                kind = "WireGuard" if c["type"] == "wireguard" else "VPN"
-                self.item(f"{VPN_ICON}  {c['name']}", kind, [b],
-                          lead="Connected" if c["active"] else None, lead_cls="ok")
+        self.render_vpns()
 
         adv = Gtk.Button(label="Advanced… (connection editor)")
         adv.set_halign(Gtk.Align.START)
         adv.connect("clicked", lambda _b: launch("nm-connection-editor"))
         self.add_widget(adv)
         self.show_all()
+
+    def render_vpns(self):
+        self.heading("VPN")
+        vs = vpn.vpns()
+        if not vs:
+            self.add_widget(label("No VPN yet: add one below", "dim"))
+        for v in vs:
+            if v["active"]:
+                act = button("Disconnect",
+                             lambda v=v: self.run_bg(f"Disconnecting {v['name']}…", self.vpn_set, v, False))
+            else:
+                act = button("Connect", lambda v=v: self.run_bg(f"Connecting {v['name']}…", self.vpn_set, v, True),
+                             "primary")
+            edit = button("Edit…", lambda v=v: self.swan_edit(v["id"]) if v["backend"] == "swan"
+                          else launch("nm-connection-editor", "-e", v["id"]))
+            self.item(f"{VPN_ICON}  {v['name']}", v["kind"], [act, edit],
+                      lead="Connected" if v["active"] else None, lead_cls="ok")
+        adds = [button("+ OpenVPN, OpenConnect, Cisco… or import a file",
+                       lambda: launch("nm-connection-editor", "-c", "-t", "vpn")),
+                button("+ WireGuard file…", self.import_wireguard)]
+        if vpn_edit.installed():
+            adds.insert(0, button("+ IKEv2 (FortiGate / strongSwan)…", lambda: self.swan_edit(None)))
+        for b in adds:
+            b.set_halign(Gtk.Align.START)
+            self.add_widget(b)
+
+    @staticmethod
+    def vpn_set(v, on):
+        err = vpn.set_active(v, on)
+        if err and on and v["backend"] == "nm" and vpn.needs_secrets(err):  # password not saved: ask in a terminal
+            GLib.idle_add(lambda: launch("fw-term", "--hold", "-e", "nmcli", "--ask", "connection", "up", "uuid",
+                                         v["id"]) and False)
+            err = "Asking for the VPN password in a terminal…"
+        subprocess.run(["pkill", "-RTMIN+13", "-x", "waybar"], check=False)  # bar shield (fw-vpn)
+        return err
+
+    def import_wireguard(self):
+        dlg = Gtk.FileChooserDialog(title="WireGuard configuration", transient_for=self.get_toplevel(),
+                                    action=Gtk.FileChooserAction.OPEN)
+        dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Import", Gtk.ResponseType.OK)
+        f = Gtk.FileFilter()
+        f.set_name("WireGuard (*.conf)")
+        f.add_pattern("*.conf")
+        dlg.add_filter(f)
+        path = dlg.get_filename() if dlg.run() == Gtk.ResponseType.OK else None
+        dlg.destroy()
+        if path:
+            self.run_bg("Importing…", net.import_vpn, "wireguard", path)
+
+    # strongSwan: the root helper asks polkit, so it runs in a thread; the form itself is modal on the main loop
+    def swan_edit(self, name, typed=None, error=""):
+        self.set_status("Waiting for authorisation…")
+        bg(vpn_edit.show, lambda cur: self.swan_form(cur, typed, error), name, fail=lambda e: {"error": str(e)})
+
+    def swan_form(self, cur, typed=None, error=""):
+        if "error" in cur:
+            self.set_status(cur["error"], "bad")
+            return False
+        self.set_status("")
+        self.confirming = True
+        try:
+            req = vpn_edit.dialog(self.get_toplevel(), cur, typed, error)
+            if req == "delete" and not self.confirm(f"Delete the VPN {cur['name']}?"):
+                req = None
+        finally:
+            self.confirming = False
+        if req == "delete":
+            self.set_status(f"Deleting {cur['name']}…")
+            bg(vpn_edit.delete, self.swan_saved, cur["name"], fail=lambda e: {"error": str(e)})
+        elif req:
+            self.set_status("Saving…")
+            bg(vpn_edit.write, lambda res: self.swan_saved(res, cur, req), req, fail=lambda e: {"error": str(e)})
+        return False
+
+    def swan_saved(self, res, cur=None, req=None):
+        if "error" in res and req is not None:  # back to the form with what was typed
+            return self.swan_form(cur, req, res["error"])
+        self.set_status(res.get("error") or res.get("note") or "Saved", "bad" if "error" in res else "dim")
+        subprocess.run(["pkill", "-RTMIN+13", "-x", "waybar"], check=False)
+        self.refresh()
+        return False
+
+    def confirm(self, question):
+        dlg = Gtk.MessageDialog(transient_for=self.get_toplevel(), modal=True, message_type=Gtk.MessageType.WARNING,
+                                buttons=Gtk.ButtonsType.OK_CANCEL, text=question)
+        dlg.format_secondary_text("The file is kept as a .bak next to it.")
+        ok = dlg.run() == Gtk.ResponseType.OK
+        dlg.destroy()
+        return ok
 
     def item(self, title, hint, buttons, lead=None, lead_cls="ok"):
         """A row: title, a hint line ('lead' coloured, then the dim rest), buttons on the right."""

@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Root side of the bar VPN toggle: fw-vpn-ctl up|down. Run through pkexec (action org.fw13.vpn, no password for
-# wheel in an active local session). Narrow on purpose: it only brings the first
-# /etc/strongswan/swanctl/conf.d/<name>.conf connection up or down and takes no other arguments.
+# Root side of the bar/Settings strongSwan toggle: fw-vpn-ctl up|down [<name>]. Run through pkexec (action
+# org.fw13.vpn, no password for wheel in an active local session). Narrow on purpose: <name> must be an existing
+# /etc/strongswan/swanctl/conf.d/<name>.conf (default: the first one); it only brings that connection up or down.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin
+DIR=/etc/strongswan/swanctl/conf.d
 
-[[ $# == 1 ]] || { echo "usage: fw-vpn-ctl up|down" >&2; exit 2; }
-name=""
-for f in /etc/strongswan/swanctl/conf.d/*.conf; do
-  [[ -e $f ]] && { name="$(basename "$f" .conf)"; break; }
-done
-[[ -n $name ]] || { echo "fw-vpn-ctl: no connection in /etc/strongswan/swanctl/conf.d" >&2; exit 1; }
+[[ $# == 1 || $# == 2 ]] || { echo "usage: fw-vpn-ctl up|down [name]" >&2; exit 2; }
+name="${2:-}"
+if [[ -z $name ]]; then
+  for f in "$DIR"/*.conf; do
+    [[ -e $f ]] && { name="$(basename "$f" .conf)"; break; }
+  done
+fi
+[[ $name =~ ^[A-Za-z0-9_-]{1,32}$ && -f $DIR/$name.conf ]] || { echo "fw-vpn-ctl: no connection '$name' in $DIR" >&2; exit 1; }
 
 case $1 in
   up) exec swanctl --initiate --child "$name" ;;
   down) exec swanctl --terminate --ike "$name" ;;
-  *) echo "usage: fw-vpn-ctl up|down" >&2; exit 2 ;;
+  *) echo "usage: fw-vpn-ctl up|down [name]" >&2; exit 2 ;;
 esac

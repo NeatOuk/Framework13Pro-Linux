@@ -12,5 +12,11 @@ RemoteDesktopManager
 # Fedora official: Secret Service for RDM's saved passwords (libsecret); Workstation has it, Minimal does not
 gnome-keyring
 # Fedora official (user decision): IPsec VPN client for the FortiGate (IKEv2, PSK + EAP user/password);
-# configured by hand in /etc/strongswan/swanctl/conf.d, started with swanctl (NetworkManager's plugins can't do PSK + EAP)
+# connections in /etc/strongswan/swanctl/conf.d (Settings → Network → VPN form, fw-vpn-config), started with swanctl (NetworkManager's plugins can't do PSK + EAP)
 strongswan
+# Every other VPN through NetworkManager (Settings → Network → VPN, bar shield menu): OpenVPN, OpenConnect
+# (FortiGate SSL, AnyConnect, GlobalProtect), Cisco IPsec; the -gnome parts are their nm-connection-editor pages
+nm-connection-editor
+NetworkManager-openvpn-gnome
+NetworkManager-openconnect-gnome
+NetworkManager-vpnc-gnome
