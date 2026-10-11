@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.expanduser("~/.local/lib"))
 from fw13 import vpn  # noqa: E402
 
 SIGNAL = 13
+SHIELD = "\uf3ed"  # Font Awesome shield-halved
 
 
 def bar():
@@ -27,7 +28,7 @@ def bar():
     tip = "\n".join(f"{'●' if v['active'] else '○'} {v['name']} · {v['kind']}" for v in vs)
     if on and any(v["backend"] == "swan" for v in on):
         tip += "\n\n" + " ".join(vpn.swan_routes())
-    print(json.dumps({"text": "", "class": "connected" if on else "off",
+    print(json.dumps({"text": SHIELD, "class": "connected" if on else "off",
                       "tooltip": f"VPN: {'connected' if on else 'off'}\n{tip}\n\nClick: connect / disconnect"}))
 
 
